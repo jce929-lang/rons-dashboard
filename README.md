@@ -6,7 +6,7 @@ A web dashboard backed by a Google Sheet. Quote of the day, product viability sc
 
 ## Stack
 - Next.js 15 (App Router) + React 19 + TypeScript
-- Tailwind CSS
+- Tailwind CSS 
 - Recharts
 - Google Sheets API (read/write via service account)
 - Deploys to Vercel
