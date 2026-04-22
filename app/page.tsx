@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SWRConfig } from "swr";
 import { QuoteOfDay } from "@/components/QuoteOfDay";
 import { ViabilityGrid } from "@/components/ViabilityGrid";
 import { SalesChart } from "@/components/SalesChart";
@@ -11,6 +12,7 @@ export default function Page() {
   const [editing, setEditing] = useState(false);
 
   return (
+    <SWRConfig value={{ refreshInterval: 60000, revalidateOnFocus: true }}>
     <main className="h-screen overflow-hidden flex flex-col bg-stone-50 p-3 gap-3">
       <StatCards />
 
@@ -48,5 +50,6 @@ export default function Page() {
         </div>
       )}
     </main>
+    </SWRConfig>
   );
 }
