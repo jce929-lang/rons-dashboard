@@ -94,7 +94,7 @@ export function SalesChart() {
     const denom = n * sx2 - sx * sx;
     const slope     = denom !== 0 ? (n * sxy - sx * sy) / denom : 0;
     const intercept = (sy - slope * sx) / n;
-    const trend = (x: number) => Math.max(0, Math.round(slope * x + intercept));
+    const trend = (x: number) => Math.max(0, slope * x + intercept);
 
     // Bar entries (actual + current-month forecast weeks)
     const barEntries = visibleRows.map((r) => {
