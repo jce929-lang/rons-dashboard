@@ -98,3 +98,26 @@ export async function ensureSheet(title: string, initialRows: (string | number)[
   if (initialRows.length > 0) await writeRange(`${title}!A1`, initialRows);
   return true;
 }
+
+/** Write several ranges in one call. */
+export async function batchWrite(data: { range: string; values: (string | number | null)[][] }[]): Promise<void> {
+  if (data.length === 0) return;
+  const sheets = getClient();
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId(),
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
+/** Append many rows in one call. */
+export async function appendRows(range: string, values: (string | number | null)[][]): Promise<void> {
+  if (values.length === 0) return;
+  const sheets = getClient();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values },
+  });
+}
