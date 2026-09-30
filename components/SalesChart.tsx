@@ -143,8 +143,8 @@ export function SalesChart() {
   const fmtVal = (v: number) => metric === "revenue" ? fmtMoney(v) : fmtInt(v);
 
   return (
-    <div className="rounded-2xl bg-white border border-stone-200 p-6 shadow-sm h-full flex flex-col">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <div className="rounded-2xl bg-white border border-stone-200 p-4 shadow-sm h-full flex flex-col">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">Weekly sales</h2>
           <div className="text-xs text-stone-500">Bars = actual / this-month forecast · dashed line = full-year trend</div>
