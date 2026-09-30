@@ -49,3 +49,24 @@ export type JobRow = {
   part: string;
   released: string; // date the job was entered
 } & Record<JobStep, boolean>;
+
+/** One routing operation on a shop job (mirrors a Made2Manage job routing line). */
+export type JobOp = {
+  op: number;      // 10, 20, 30...
+  wc: string;      // work center #
+  wcDesc: string;  // work center name, e.g. LASER L5
+  done: boolean;
+  comp: number;    // qty complete (from M2M)
+  rem: number;     // qty remaining (from M2M)
+};
+
+export type ShopJob = {
+  job: string;
+  parent: string;
+  part: string;
+  rev: string;
+  desc: string;
+  qty: number;
+  due: string; // YYYY-MM-DD
+  ops: JobOp[];
+};
