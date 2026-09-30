@@ -8,14 +8,6 @@ import { SalesEditor } from "@/components/SalesEditor";
 import { ScheduleGantt } from "@/components/ScheduleGantt";
 import { JobTracker } from "@/components/JobTracker";
 
-function InProgress() {
-  return (
-    <div className="rounded-2xl bg-white border border-dashed border-stone-300 shadow-sm h-full min-h-0 flex items-center justify-center">
-      <span className="text-lg font-medium text-stone-400">In progress</span>
-    </div>
-  );
-}
-
 export default function Page() {
   const [editing, setEditing] = useState(false);
 
@@ -47,7 +39,13 @@ export default function Page() {
             <JobTracker />
           </section>
 
-          <InProgress />
+          {/* Bottom-right quadrant: shop KPIs (details to come) */}
+          <section className="rounded-2xl bg-white border border-stone-200 p-4 shadow-sm min-h-0 flex flex-col">
+            <h2 className="text-lg font-semibold text-stone-800">Shop KPIs</h2>
+            <div className="flex-1 flex items-center justify-center text-lg font-medium text-stone-400">
+              In progress
+            </div>
+          </section>
         </div>
 
         {editing && (
