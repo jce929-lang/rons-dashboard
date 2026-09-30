@@ -70,3 +70,31 @@ export function rowsToObjects<T extends Record<string, string>>(rows: string[][]
     return o as T;
   });
 }
+
+/**
+ * Make sure a tab exists. If it doesn't, create it and fill it with `initialRows`.
+ * Returns true if the tab was just created.
+ */
+export async function ensureSheet(title: string, initialRows: (string | number)[][]): Promise<boolean> {
+  const sheets = getClient();
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId: sheetId(),
+    fields: "sheets.properties.title",
+  });
+  const exists = meta.data.sheets?.some((s) => s.properties?.title === title);
+  if (exists) return false;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: sheetId(),
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: { title, gridProperties: { frozenRowCount: 1 } },
+          },
+        },
+      ],
+    },
+  });
+  if (initialRows.length > 0) await writeRange(`${title}!A1`, initialRows);
+  return true;
+}
