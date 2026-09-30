@@ -103,5 +103,8 @@ If you see an error about missing env vars or "The caller does not have permissi
   - `% Complete`: 0-100. `Critical (Y/N)`: `Y` puts the task on the critical path (drawn in red).
   - `Owner`, `Notes`: optional. Tasks past their end date and under 100% are flagged LATE.
   - To add another product, add rows with a new Product name.
-- **Shop job releases** (bottom-left of the dashboard): click **+ Add job** to enter a job # and part #, then click the Op 1-4, Paint and Assembly boxes as each step is done. Everything saves to the `Jobs` tab in Sheets, which the dashboard creates on its own. Finished jobs turn green and move to the bottom; **Clear finished** hides them (it puts `Y` in the Archived column, so nothing is deleted). You can also type `TRUE` in a step column in Sheets to check it off.
+- **Shop job releases** (bottom-left of the dashboard): one row per job, with a checkbox for each operation in its routing (e.g. `10 LASER L5`, `20 PRESS BRAKE`). Click an operation to check it off. Jobs are grouped by job family (e.g. `IZE92`), and the list scrolls. Data lives in the `Job Ops` tab in Sheets, one row per operation, laid out like the M2M Jobs Detail report.
+  - **+ Add job**: enter job #, part #, description, qty, due date, and the operations in order separated by commas.
+  - **Loading an M2M report**: send Claude a new Jobs Detail PDF and it loads it through the dashboard's import. Operations with 0 remaining in M2M come in checked; boxes you checked by hand stay checked.
+  - **Clear finished** hides jobs whose operations are all checked (puts `Y` in the Archived column; nothing is deleted).
 - **Prices / title**: edit the `Config` tab directly in Sheets. Changes show up on next page load.
