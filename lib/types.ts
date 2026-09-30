@@ -40,3 +40,12 @@ export type ScheduleRow = {
   owner: string;
   notes: string;
 };
+
+export const JOB_STEPS = ["op1", "op2", "op3", "op4", "paint", "assembly"] as const;
+export type JobStep = (typeof JOB_STEPS)[number];
+
+export type JobRow = {
+  job: string;
+  part: string;
+  released: string; // date the job was entered
+} & Record<JobStep, boolean>;
