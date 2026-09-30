@@ -29,3 +29,14 @@ export type DashboardConfig = {
   ram_unit_price: number;
   dashboard_title: string;
 };
+
+export type ScheduleRow = {
+  product: string;
+  task: string;
+  start: string; // ISO date YYYY-MM-DD
+  end: string;   // ISO date YYYY-MM-DD (same as start = milestone)
+  pct: number;   // 0-100
+  critical: boolean;
+  owner: string;
+  notes: string;
+};
