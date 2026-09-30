@@ -103,4 +103,5 @@ If you see an error about missing env vars or "The caller does not have permissi
   - `% Complete`: 0-100. `Critical (Y/N)`: `Y` puts the task on the critical path (drawn in red).
   - `Owner`, `Notes`: optional. Tasks past their end date and under 100% are flagged LATE.
   - To add another product, add rows with a new Product name.
+- **Shop job releases** (bottom-left of the dashboard): click **+ Add job** to enter a job # and part #, then click the Op 1-4, Paint and Assembly boxes as each step is done. Everything saves to the `Jobs` tab in Sheets, which the dashboard creates on its own. Finished jobs turn green and move to the bottom; **Clear finished** hides them (it puts `Y` in the Archived column, so nothing is deleted). You can also type `TRUE` in a step column in Sheets to check it off.
 - **Prices / title**: edit the `Config` tab directly in Sheets. Changes show up on next page load.
