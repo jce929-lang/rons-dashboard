@@ -6,6 +6,7 @@ import { SalesChart } from "@/components/SalesChart";
 import { StatCards } from "@/components/StatCards";
 import { SalesEditor } from "@/components/SalesEditor";
 import { ScheduleGantt } from "@/components/ScheduleGantt";
+import { JobTracker } from "@/components/JobTracker";
 
 function InProgress() {
   return (
@@ -41,7 +42,11 @@ export default function Page() {
             <ScheduleGantt />
           </section>
 
-          <InProgress />
+          {/* Bottom-left quadrant: shop job releases */}
+          <section className="min-h-0">
+            <JobTracker />
+          </section>
+
           <InProgress />
         </div>
 
