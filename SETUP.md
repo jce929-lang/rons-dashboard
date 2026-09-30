@@ -97,4 +97,10 @@ If you see an error about missing env vars or "The caller does not have permissi
 - **Quotes**: click **Edit** on the dashboard → add new ones at the bottom. Or edit `Quotes` tab directly in Google Sheets — add rows, no need to sort.
 - **Viability**: click **Edit** → adjust the three scores → **Save** on that row. Score recomputes automatically. Rows sort by score on display.
 - **Sales**: click **Edit** → scroll to "Add weekly sales" → enter the week, pick Actual or Forecast, fill in the channel numbers that apply, click "Add week".
+- **Product development schedule** (top-right of the dashboard): edit the `Schedule` tab in Sheets. The dashboard creates this tab on its own the first time it loads. One row per task:
+  - `Product`: e.g. `QX` or `Handgun Locker`. Rows with the same product are grouped together, in sheet order.
+  - `Task`, `Start`, `End`: dates like `2026-10-01` or `10/1/2026`. Set Start = End for a milestone (drawn as a diamond).
+  - `% Complete`: 0-100. `Critical (Y/N)`: `Y` puts the task on the critical path (drawn in red).
+  - `Owner`, `Notes`: optional. Tasks past their end date and under 100% are flagged LATE.
+  - To add another product, add rows with a new Product name.
 - **Prices / title**: edit the `Config` tab directly in Sheets. Changes show up on next page load.
