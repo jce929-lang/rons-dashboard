@@ -5,6 +5,7 @@ import { SWRConfig } from "swr";
 import { SalesChart } from "@/components/SalesChart";
 import { StatCards } from "@/components/StatCards";
 import { SalesEditor } from "@/components/SalesEditor";
+import { ScheduleGantt } from "@/components/ScheduleGantt";
 
 function InProgress() {
   return (
@@ -35,7 +36,11 @@ export default function Page() {
             </button>
           </section>
 
-          <InProgress />
+          {/* Top-right quadrant: product development schedules */}
+          <section className="min-h-0">
+            <ScheduleGantt />
+          </section>
+
           <InProgress />
           <InProgress />
         </div>
