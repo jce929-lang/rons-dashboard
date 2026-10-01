@@ -14,6 +14,8 @@ export const SALES_CHANNELS = [
   "ford_fol_fbm", "ford_fol_fba", "ford_fol_web",
   "gm_fol_fbm", "gm_fol_fba", "gm_fol_web",
   "ram_fbm", "ram_fba", "ram_web",
+  // Distributor sales (added after the original 15 columns so existing sheet columns don't move)
+  "ford_usl_dist", "gm_usl_dist", "ford_fol_dist", "gm_fol_dist", "ram_dist",
 ] as const;
 
 export type SalesChannel = (typeof SALES_CHANNELS)[number];
@@ -21,6 +23,10 @@ export type SalesChannel = (typeof SALES_CHANNELS)[number];
 export type SalesRow = {
   week_of: string;
   type: "Actual" | "Forecast";
+  /** Weekly revenue $ from the sales master. Blank = units x Config prices. */
+  revenue?: number | null;
+  /** Forecast rows only: total forecast units (USL + FOL) from the sales master. */
+  forecast_units?: number | null;
 } & Record<SalesChannel, number>;
 
 export type DashboardConfig = {
