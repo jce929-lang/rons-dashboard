@@ -19,21 +19,45 @@ import { fmtInt, fmtMoney, num } from "@/lib/utils";
 
 const fetcher = (u: string) => fetch(u).then((r) => r.json());
 
-const RAM_CHANNELS = ["ram_fbm", "ram_fba", "ram_web"] as const;
-
 const GROUPS = {
-  "Ford USL": ["ford_usl_fbm", "ford_usl_fba", "ford_usl_web"],
-  "GM USL":   ["gm_usl_fbm",  "gm_usl_fba",  "gm_usl_web"],
-  "Ford FOL": ["ford_fol_fbm","ford_fol_fba","ford_fol_web"],
-  "GM FOL":   ["gm_fol_fbm",  "gm_fol_fba",  "gm_fol_web"],
+  "Ford USL": ["ford_usl_fbm", "ford_usl_fba", "ford_usl_web", "ford_usl_dist"],
+  "GM USL":   ["gm_usl_fbm",  "gm_usl_fba",  "gm_usl_web",  "gm_usl_dist"],
+  "Ram USL":  ["ram_fbm",     "ram_fba",     "ram_web",     "ram_dist"],
+  "Ford FOL": ["ford_fol_fbm","ford_fol_fba","ford_fol_web","ford_fol_dist"],
+  "GM FOL":   ["gm_fol_fbm",  "gm_fol_fba",  "gm_fol_web",  "gm_fol_dist"],
 } as const;
+type GroupName = keyof typeof GROUPS;
 
-const GROUP_COLORS: Record<keyof typeof GROUPS, string> = {
-  "Ford USL": "#ea580c",
-  "GM USL":   "#f59e0b",
-  "Ford FOL": "#0284c7",
-  "GM FOL":   "#0ea5e9",
+// Validated categorical palette (fixed order); identity is also carried by the legend.
+const GROUP_COLORS: Record<GroupName, string> = {
+  "Ford USL": "#c2410c",
+  "GM USL":   "#ca8a04",
+  "Ram USL":  "#7c3aed",
+  "Ford FOL": "#2563eb",
+  "GM FOL":   "#0d9488",
 };
+const FORECAST_COLOR = "#a8a29e";
+
+const units = (r: SalesRow, keys: readonly string[]) =>
+  keys.reduce((s, k) => s + num(r[k as (typeof SALES_CHANNELS)[number]]), 0);
+
+function groupPrice(name: GroupName, cfg: DashboardConfig) {
+  if (name.includes("FOL")) return cfg.fol_unit_price;
+  if (name.startsWith("Ram")) return cfg.ram_unit_price;
+  return cfg.usl_unit_price;
+}
+
+/** Revenue per group for one week. Uses the week's actual revenue (from the sales master) when present,
+ *  split across groups by list-price weight; otherwise units x Config prices. */
+function groupRevenue(r: SalesRow, cfg: DashboardConfig): Record<GroupName, number> {
+  const est = Object.fromEntries(
+    (Object.keys(GROUPS) as GroupName[]).map((g) => [g, units(r, GROUPS[g]) * groupPrice(g, cfg)])
+  ) as Record<GroupName, number>;
+  const estTotal = Object.values(est).reduce((a, b) => a + b, 0);
+  if (r.revenue == null || estTotal === 0) return est;
+  const k = r.revenue / estTotal;
+  return Object.fromEntries(Object.entries(est).map(([g, v]) => [g, v * k])) as Record<GroupName, number>;
+}
 
 type Metric = "units" | "revenue";
 const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
@@ -73,13 +97,9 @@ export function SalesChart() {
 
     // Value for a single row (total across all groups)
     const rowValue = (r: SalesRow) =>
-      Object.entries(GROUPS).reduce((sum, [name, keys]) => {
-        const units = keys.reduce((s, k) => s + num(r[k as (typeof SALES_CHANNELS)[number]]), 0);
-        const price = metric === "revenue"
-          ? (name.includes("FOL") ? cfg.fol_unit_price : cfg.usl_unit_price)
-          : 1;
-        return sum + units * price;
-      }, 0);
+      metric === "revenue"
+        ? Object.values(groupRevenue(r, cfg)).reduce((a, b) => a + b, 0)
+        : (Object.keys(GROUPS) as GroupName[]).reduce((sum, g) => sum + units(r, GROUPS[g]), 0);
 
     // Linear regression on actuals
     const pts = actualRows.map((r) => ({
@@ -105,12 +125,15 @@ export function SalesChart() {
         type: r.type,
         Trend: trend(x),
       };
-      for (const [name, keys] of Object.entries(GROUPS)) {
-        const units = keys.reduce((s, k) => s + num(r[k as (typeof SALES_CHANNELS)[number]]), 0);
-        const price = metric === "revenue"
-          ? (name.includes("FOL") ? cfg.fol_unit_price : cfg.usl_unit_price)
-          : 1;
-        entry[name] = units * price;
+      if (r.type === "Forecast") {
+        // The sales master forecasts total units/revenue, not a per-channel split.
+        const fc = metric === "revenue" ? r.revenue : r.forecast_units;
+        entry.Forecast = fc ?? null;
+        return entry;
+      }
+      const rev = groupRevenue(r, cfg);
+      for (const g of Object.keys(GROUPS) as GroupName[]) {
+        entry[g] = metric === "revenue" ? rev[g] : units(r, GROUPS[g]);
       }
       return entry;
     });
@@ -147,7 +170,7 @@ export function SalesChart() {
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">Weekly sales</h2>
-          <div className="text-xs text-stone-500">Bars = actual / this-month forecast · dashed line = full-year trend</div>
+          <div className="text-xs text-stone-500">Bars = actual (gray = forecast for the rest of this month) · dashed line = full-year trend</div>
         </div>
         <div className="inline-flex rounded-md border border-stone-300 bg-stone-50 p-0.5 text-sm">
           {(["units", "revenue"] as Metric[]).map((m) => (
@@ -189,9 +212,10 @@ export function SalesChart() {
                 key={name}
                 dataKey={name}
                 stackId="a"
-                fill={GROUP_COLORS[name as keyof typeof GROUPS]}
+                fill={GROUP_COLORS[name as GroupName]}
               />
             ))}
+            <Bar dataKey="Forecast" stackId="a" fill={FORECAST_COLOR} fillOpacity={0.7} />
             <Line
               dataKey="Trend"
               type="linear"
@@ -216,24 +240,21 @@ export function useSalesTotals() {
     const cfg = configData?.config;
     if (!cfg) return null;
     const actuals = items.filter((r) => r.type === "Actual");
-    const sum = (rows: SalesRow[], keys: readonly string[]) =>
-      rows.reduce((s, r) => s + keys.reduce((ss, k) => ss + num(r[k as (typeof SALES_CHANNELS)[number]]), 0), 0);
-    const one = (key: string) => sum(actuals, [key]);
-    const brand = (prefix: string) => ({
-      fbm: one(`${prefix}_fbm`),
-      fba: one(`${prefix}_fba`),
-      web: one(`${prefix}_web`),
-      total: one(`${prefix}_fbm`) + one(`${prefix}_fba`) + one(`${prefix}_web`),
-    });
+    const one = (key: string) => actuals.reduce((s, r) => s + num(r[key as (typeof SALES_CHANNELS)[number]]), 0);
+    const brand = (prefix: string) => {
+      const b = { fbm: one(`${prefix}_fbm`), fba: one(`${prefix}_fba`), web: one(`${prefix}_web`), dist: one(`${prefix}_dist`) };
+      return { ...b, total: b.fbm + b.fba + b.web + b.dist };
+    };
     const fordUsl = brand("ford_usl");
     const gmUsl   = brand("gm_usl");
+    const ram     = brand("ram");
     const fordFol = brand("ford_fol");
     const gmFol   = brand("gm_fol");
-    const ramUnits  = sum(actuals, RAM_CHANNELS);
-    const uslUnits  = fordUsl.total + gmUsl.total;
-    const folUnits  = fordFol.total + gmFol.total;
-    const totalUnits = uslUnits + folUnits;
-    const revenue = uslUnits * cfg.usl_unit_price + folUnits * cfg.fol_unit_price + ramUnits * cfg.ram_unit_price;
-    return { fordUsl, gmUsl, fordFol, gmFol, totalUnits, revenue };
+    const totalUnits = fordUsl.total + gmUsl.total + ram.total + fordFol.total + gmFol.total;
+    const revenue = actuals.reduce(
+      (s, r) => s + Object.values(groupRevenue(r, cfg)).reduce((a, b) => a + b, 0),
+      0
+    );
+    return { fordUsl, gmUsl, ram, fordFol, gmFol, totalUnits, revenue };
   }, [salesData, configData]);
 }
