@@ -37,11 +37,11 @@ export function SalesEditor() {
   }
 
   const groups: [string, readonly string[]][] = [
-    ["Ford USL", ["ford_usl_fbm", "ford_usl_fba", "ford_usl_web"]],
-    ["GM USL", ["gm_usl_fbm", "gm_usl_fba", "gm_usl_web"]],
-    ["Ford FOL", ["ford_fol_fbm", "ford_fol_fba", "ford_fol_web"]],
-    ["GM FOL", ["gm_fol_fbm", "gm_fol_fba", "gm_fol_web"]],
-    ["Ram", ["ram_fbm", "ram_fba", "ram_web"]],
+    ["Ford USL", ["ford_usl_fbm", "ford_usl_fba", "ford_usl_web", "ford_usl_dist"]],
+    ["GM USL", ["gm_usl_fbm", "gm_usl_fba", "gm_usl_web", "gm_usl_dist"]],
+    ["Ford FOL", ["ford_fol_fbm", "ford_fol_fba", "ford_fol_web", "ford_fol_dist"]],
+    ["GM FOL", ["gm_fol_fbm", "gm_fol_fba", "gm_fol_web", "gm_fol_dist"]],
+    ["Ram", ["ram_fbm", "ram_fba", "ram_web", "ram_dist"]],
   ];
 
   const latest = (data?.items ?? []).slice(-5).reverse();
