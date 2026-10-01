@@ -107,4 +107,5 @@ If you see an error about missing env vars or "The caller does not have permissi
   - **+ Add job**: enter job #, part #, description, qty, due date, and the operations in order separated by commas.
   - **Loading an M2M report**: send Claude a new Jobs Detail PDF and it loads it through the dashboard's import. Operations with 0 remaining in M2M come in checked; boxes you checked by hand stay checked.
   - **Clear finished** hides jobs whose operations are all checked (puts `Y` in the Archived column; nothing is deleted).
+- **Shop KPIs: WIP & raw materials vs. open orders** (bottom-right): one row per week in the `Inventory` tab (Date, WIP, Raw Materials, Open Order Total, all in $), the same three numbers as the weekly M2M reports (RPGLTB, RPIVAL, RPBKLG). Add a week with **+ Add week** on the dashboard or by adding a row in Sheets; saving a date that already exists replaces it. The chart shows WIP % and raw materials % of open orders, with dashed 12-month averages; the toggle switches between 8 weeks, 6 months and 1 year.
 - **Prices / title**: edit the `Config` tab directly in Sheets. Changes show up on next page load.
