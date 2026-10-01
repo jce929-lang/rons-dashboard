@@ -7,6 +7,7 @@ import { StatCards } from "@/components/StatCards";
 import { SalesEditor } from "@/components/SalesEditor";
 import { ScheduleGantt } from "@/components/ScheduleGantt";
 import { JobTracker } from "@/components/JobTracker";
+import { InventoryKpi } from "@/components/InventoryKpi";
 
 export default function Page() {
   const [editing, setEditing] = useState(false);
@@ -39,12 +40,9 @@ export default function Page() {
             <JobTracker />
           </section>
 
-          {/* Bottom-right quadrant: shop KPIs (details to come) */}
-          <section className="rounded-2xl bg-white border border-stone-200 p-4 shadow-sm min-h-0 flex flex-col">
-            <h2 className="text-lg font-semibold text-stone-800">Shop KPIs</h2>
-            <div className="flex-1 flex items-center justify-center text-lg font-medium text-stone-400">
-              In progress
-            </div>
+          {/* Bottom-right quadrant: shop KPIs */}
+          <section className="min-h-0">
+            <InventoryKpi />
           </section>
         </div>
 
