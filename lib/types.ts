@@ -61,3 +61,11 @@ export type ShopJob = {
   due: string; // YYYY-MM-DD
   ops: JobOp[];
 };
+
+/** One weekly inventory snapshot (from the WIP / RM / Open Orders M2M reports). */
+export type InventoryWeek = {
+  date: string; // YYYY-MM-DD
+  wip: number;  // work in process $
+  rm: number;   // raw materials $
+  oo: number;   // open order total $
+};
