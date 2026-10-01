@@ -36,7 +36,6 @@ const GROUP_COLORS: Record<GroupName, string> = {
   "Ford FOL": "#2563eb",
   "GM FOL":   "#0d9488",
 };
-const FORECAST_COLOR = "#a8a29e";
 
 const units = (r: SalesRow, keys: readonly string[]) =>
   keys.reduce((s, k) => s + num(r[k as (typeof SALES_CHANNELS)[number]]), 0);
@@ -80,15 +79,10 @@ export function SalesChart() {
     if (!cfg || items.length === 0) return [];
 
     const now = new Date();
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     const yearEnd   = new Date(now.getFullYear(), 11, 31);
 
-    // Rows to render as bars: actuals + forecasts within current month
-    const visibleRows = items.filter((r) => {
-      if (r.type === "Actual") return true;
-      const d = new Date(r.week_of + "T12:00:00");
-      return r.type === "Forecast" && d <= endOfMonth;
-    });
+    // Bars show actual weeks only; the dashed trend line carries the projection.
+    const visibleRows = items.filter((r) => r.type === "Actual");
 
     const actualRows = items.filter((r) => r.type === "Actual");
     if (actualRows.length === 0) return [];
@@ -116,7 +110,7 @@ export function SalesChart() {
     const intercept = (sy - slope * sx) / n;
     const trend = (x: number) => Math.max(0, slope * x + intercept);
 
-    // Bar entries (actual + current-month forecast weeks)
+    // Bar entries (actual weeks)
     const barEntries = visibleRows.map((r) => {
       const x = Math.round((new Date(r.week_of + "T12:00:00").getTime() - firstDate.getTime()) / MS_PER_WEEK);
       const entry: Record<string, string | number | null> = {
@@ -125,12 +119,6 @@ export function SalesChart() {
         type: r.type,
         Trend: trend(x),
       };
-      if (r.type === "Forecast") {
-        // The sales master forecasts total units/revenue, not a per-channel split.
-        const fc = metric === "revenue" ? r.revenue : r.forecast_units;
-        entry.Forecast = fc ?? null;
-        return entry;
-      }
       const rev = groupRevenue(r, cfg);
       for (const g of Object.keys(GROUPS) as GroupName[]) {
         entry[g] = metric === "revenue" ? rev[g] : units(r, GROUPS[g]);
@@ -170,7 +158,7 @@ export function SalesChart() {
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">Weekly sales</h2>
-          <div className="text-xs text-stone-500">Bars = actual (gray = forecast for the rest of this month) · dashed line = full-year trend</div>
+          <div className="text-xs text-stone-500">Bars = actual · dashed line = full-year trend</div>
         </div>
         <div className="inline-flex rounded-md border border-stone-300 bg-stone-50 p-0.5 text-sm">
           {(["units", "revenue"] as Metric[]).map((m) => (
@@ -215,7 +203,6 @@ export function SalesChart() {
                 fill={GROUP_COLORS[name as GroupName]}
               />
             ))}
-            <Bar dataKey="Forecast" stackId="a" fill={FORECAST_COLOR} fillOpacity={0.7} />
             <Line
               dataKey="Trend"
               type="linear"
