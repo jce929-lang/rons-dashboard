@@ -121,3 +121,9 @@ export async function appendRows(range: string, values: (string | number | null)
     requestBody: { values },
   });
 }
+
+/** Clear the values in a range (formatting is kept). */
+export async function clearRange(range: string): Promise<void> {
+  const sheets = getClient();
+  await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId(), range });
+}
