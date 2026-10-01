@@ -96,7 +96,9 @@ If you see an error about missing env vars or "The caller does not have permissi
 
 - **Quotes**: click **Edit** on the dashboard → add new ones at the bottom. Or edit `Quotes` tab directly in Google Sheets — add rows, no need to sort.
 - **Viability**: click **Edit** → adjust the three scores → **Save** on that row. Score recomputes automatically. Rows sort by score on display.
-- **Sales**: click **Edit** → scroll to "Add weekly sales" → enter the week, pick Actual or Forecast, fill in the channel numbers that apply, click "Add week".
+- **Sales**: the `USL SALES MASTER.xlsx` workbook ("Data and Forecast" tab) is the source of truth. Send Claude the latest copy and it replaces the `Sales` tab with it (the old contents are copied to a `Sales_backup_<date>` tab first). For a single week, click **Edit sales** → "Add weekly sales" → enter the week, pick Actual or Forecast, fill in the channel numbers (FBM / FBA / WEB / DIST), click "Add week".
+  - `Sales` tab columns: `week_of`, `type`, 15 original channel columns, then `ford_usl_dist` … `ram_dist`, `revenue` (actual weekly $ from the master; if blank the dashboard uses units × Config prices) and `forecast_units` (forecast rows only).
+  - Ram counts toward USL, matching the master.
 - **Product development schedule** (top-right of the dashboard): edit the `Schedule` tab in Sheets. The dashboard creates this tab on its own the first time it loads. One row per task:
   - `Product`: e.g. `QX` or `Handgun Locker`. Rows with the same product are grouped together, in sheet order.
   - `Task`, `Start`, `End`: dates like `2026-10-01` or `10/1/2026`. Set Start = End for a milestone (drawn as a diamond).
