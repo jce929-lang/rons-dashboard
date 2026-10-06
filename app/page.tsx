@@ -13,6 +13,7 @@ import { RevenuePlan } from "@/components/RevenuePlan";
 const SLIDES = ["Weekly sales", "Revenue plan"] as const;
 const ROTATE_MS = 20_000; // auto-advance on the TV
 const HOLD_MS = 120_000; // after someone picks a slide, stay on it this long
+const RELOAD_MS = 30 * 60_000; // full page refresh, so the TV picks up new deploys
 
 export default function Page() {
   const [editing, setEditing] = useState(false);
@@ -24,6 +25,22 @@ export default function Page() {
       if (Date.now() >= holdUntil.current) setSlide((s) => (s + 1) % SLIDES.length);
     }, ROTATE_MS);
     return () => clearInterval(id);
+  }, []);
+
+  // Reload the whole page every 30 minutes. If someone is typing or the sales editor is open,
+  // wait and try again a minute later so nothing they entered is lost.
+  const editingRef = useRef(false);
+  editingRef.current = editing;
+  useEffect(() => {
+    let id: ReturnType<typeof setTimeout>;
+    const tryReload = () => {
+      const el = document.activeElement;
+      const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
+      if (editingRef.current || typing) id = setTimeout(tryReload, 60_000);
+      else window.location.reload();
+    };
+    id = setTimeout(tryReload, RELOAD_MS);
+    return () => clearTimeout(id);
   }, []);
 
   const pickSlide = (i: number) => {
