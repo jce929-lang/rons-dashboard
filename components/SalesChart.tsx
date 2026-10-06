@@ -48,7 +48,7 @@ function groupPrice(name: GroupName, cfg: DashboardConfig) {
 
 /** Revenue per group for one week. Uses the week's actual revenue (from the sales master) when present,
  *  split across groups by list-price weight; otherwise units x Config prices. */
-function groupRevenue(r: SalesRow, cfg: DashboardConfig): Record<GroupName, number> {
+export function groupRevenue(r: SalesRow, cfg: DashboardConfig): Record<GroupName, number> {
   const est = Object.fromEntries(
     (Object.keys(GROUPS) as GroupName[]).map((g) => [g, units(r, GROUPS[g]) * groupPrice(g, cfg)])
   ) as Record<GroupName, number>;
