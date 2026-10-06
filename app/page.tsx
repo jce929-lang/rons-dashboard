@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SWRConfig } from "swr";
 import { SalesChart } from "@/components/SalesChart";
 import { StatCards } from "@/components/StatCards";
@@ -8,26 +8,71 @@ import { SalesEditor } from "@/components/SalesEditor";
 import { ScheduleGantt } from "@/components/ScheduleGantt";
 import { JobTracker } from "@/components/JobTracker";
 import { InventoryKpi } from "@/components/InventoryKpi";
+import { RevenuePlan } from "@/components/RevenuePlan";
+
+const SLIDES = ["Weekly sales", "Revenue plan"] as const;
+const ROTATE_MS = 20_000; // auto-advance on the TV
+const HOLD_MS = 120_000; // after someone picks a slide, stay on it this long
 
 export default function Page() {
   const [editing, setEditing] = useState(false);
+  const [slide, setSlide] = useState(0);
+  const holdUntil = useRef(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (Date.now() >= holdUntil.current) setSlide((s) => (s + 1) % SLIDES.length);
+    }, ROTATE_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  const pickSlide = (i: number) => {
+    holdUntil.current = Date.now() + HOLD_MS;
+    setSlide(i);
+  };
 
   return (
     <SWRConfig value={{ refreshInterval: 60000, revalidateOnFocus: true }}>
       <main className="h-screen overflow-hidden bg-stone-50 p-3">
         <div className="grid grid-cols-2 grid-rows-2 gap-3 h-full">
-          {/* Top-left quadrant: weekly sales */}
-          <section className="relative min-h-0 flex flex-col gap-2">
-            <StatCards compact />
-            <div className="flex-1 min-h-0">
-              <SalesChart />
+          {/* Top-left quadrant: slides (weekly sales / revenue plan) */}
+          <section className="min-h-0 flex flex-col gap-2">
+            {slide === 0 ? (
+              <>
+                <StatCards compact />
+                <div className="flex-1 min-h-0">
+                  <SalesChart />
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 min-h-0">
+                <RevenuePlan />
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <div className="inline-flex rounded-md border border-stone-300 bg-white p-0.5 text-xs">
+                {SLIDES.map((name, i) => (
+                  <button
+                    key={name}
+                    onClick={() => pickSlide(i)}
+                    className={
+                      "px-3 py-1 rounded " +
+                      (slide === i ? "bg-stone-800 text-white" : "text-stone-600 hover:text-stone-900")
+                    }
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+              {slide === 0 && (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="rounded-md px-3 py-1 text-xs font-medium border bg-white text-stone-600 border-stone-300 hover:bg-stone-50"
+                >
+                  Edit sales
+                </button>
+              )}
             </div>
-            <button
-              onClick={() => setEditing(true)}
-              className="absolute bottom-2 right-2 rounded-md px-3 py-1 text-xs font-medium border bg-white text-stone-600 border-stone-300 hover:bg-stone-50"
-            >
-              Edit sales
-            </button>
           </section>
 
           {/* Top-right quadrant: product development schedules */}
