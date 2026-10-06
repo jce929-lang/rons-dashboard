@@ -30,15 +30,56 @@ function SimpleCard({ label, value, accent, compact, note }: { label: string; va
   );
 }
 
+/** One short row for the dashboard quadrant: number on the left, channel split on the right. */
+function MiniBrand({ label, brand, accent }: { label: string; brand: Brand; accent: string }) {
+  return (
+    <div className="rounded-xl bg-white border border-stone-200 shadow-sm px-2.5 py-1.5 min-w-0">
+      <div className="text-[10px] uppercase tracking-wider text-stone-500 truncate">{label}</div>
+      <div className="flex items-center gap-2">
+        <span className={"text-lg font-semibold tabular-nums leading-none " + accent}>{fmtInt(brand.total)}</span>
+        <span className="text-[10px] leading-tight text-stone-500 tabular-nums">
+          FBM <b className="font-medium text-stone-700">{fmtInt(brand.fbm)}</b> FBA <b className="font-medium text-stone-700">{fmtInt(brand.fba)}</b>
+          <br />
+          WEB <b className="font-medium text-stone-700">{fmtInt(brand.web)}</b>
+          {brand.dist > 0 && (
+            <>
+              {" "}DIST <b className="font-medium text-stone-700">{fmtInt(brand.dist)}</b>
+            </>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function StatCards({ compact = false }: { compact?: boolean } = {}) {
   const t = useSalesTotals();
-  const cols = compact ? "grid-cols-3 gap-2" : "grid-cols-6 gap-3";
+  const cols = compact ? "grid-cols-5 gap-2" : "grid-cols-6 gap-3";
   if (!t) {
     return (
       <div className={"grid " + cols}>
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className={"rounded-2xl bg-white border border-stone-200 shadow-sm animate-pulse " + (compact ? "h-16" : "h-24")} />
+        {Array.from({ length: compact ? 5 : 6 }).map((_, i) => (
+          <div key={i} className={"rounded-2xl bg-white border border-stone-200 shadow-sm animate-pulse " + (compact ? "h-12" : "h-24")} />
         ))}
+      </div>
+    );
+  }
+  if (compact) {
+    return (
+      <div className={"grid " + cols}>
+        <MiniBrand label="Ford USL sold" brand={t.fordUsl} accent="text-orange-700" />
+        <MiniBrand label="GM USL sold" brand={t.gmUsl} accent="text-yellow-700" />
+        <MiniBrand label="Ford FOL sold" brand={t.fordFol} accent="text-blue-700" />
+        <MiniBrand label="GM FOL sold" brand={t.gmFol} accent="text-teal-700" />
+        <div className="rounded-xl bg-white border border-stone-200 shadow-sm px-2.5 py-1.5 min-w-0">
+          <div className="text-[10px] uppercase tracking-wider text-stone-500 truncate">Total</div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-lg font-semibold tabular-nums leading-none text-emerald-700">{fmtMoney(t.revenue)}</span>
+          </div>
+          <div className="text-[10px] leading-tight text-stone-500 tabular-nums">
+            {fmtInt(t.totalUnits)} units{t.ram.total > 0 ? ` · incl. ${fmtInt(t.ram.total)} Ram` : ""}
+          </div>
+        </div>
       </div>
     );
   }
