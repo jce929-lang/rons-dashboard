@@ -75,3 +75,13 @@ export type InventoryWeek = {
   rm: number;   // raw materials $
   oo: number;   // open order total $
 };
+
+/** One month of the revenue plan (Projections tab). */
+export type ProjectionMonth = {
+  month: string; // YYYY-MM
+  uslWeb: number; // USL Web/Amazon
+  uslDist: number; // USL Distributor
+  closet: number; // Closet Locker
+  handgun: number; // Handgun Locker
+  total: number;
+};
