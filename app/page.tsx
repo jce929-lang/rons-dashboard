@@ -52,43 +52,43 @@ export default function Page() {
     <SWRConfig value={{ refreshInterval: 60000, revalidateOnFocus: true }}>
       <main className="h-screen overflow-hidden bg-stone-50 p-3">
         <div className="grid grid-cols-2 grid-rows-2 gap-3 h-full">
-          {/* Top-left quadrant: slides (weekly sales / revenue plan) */}
-          <section className="min-h-0 flex flex-col gap-2">
+          {/* Top-left quadrant: slides (weekly sales / revenue plan).
+              The slide toggle floats in the top-right corner so it doesn't take a row of its own. */}
+          <section className="relative min-h-0 flex flex-col gap-2">
             {slide === 0 ? (
               <>
-                <StatCards compact />
+                {/* leave room on the right for the slide toggle */}
+                <div className="pr-[188px]">
+                  <StatCards compact />
+                </div>
                 <div className="flex-1 min-h-0">
                   <SalesChart />
                 </div>
+                <button
+                  onClick={() => setEditing(true)}
+                  className="absolute bottom-2 right-2 rounded-md px-3 py-1 text-xs font-medium border bg-white text-stone-600 border-stone-300 hover:bg-stone-50"
+                >
+                  Edit sales
+                </button>
               </>
             ) : (
               <div className="flex-1 min-h-0">
                 <RevenuePlan />
               </div>
             )}
-            <div className="flex items-center justify-between gap-2">
-              <div className="inline-flex rounded-md border border-stone-300 bg-white p-0.5 text-xs">
-                {SLIDES.map((name, i) => (
-                  <button
-                    key={name}
-                    onClick={() => pickSlide(i)}
-                    className={
-                      "px-3 py-1 rounded " +
-                      (slide === i ? "bg-stone-800 text-white" : "text-stone-600 hover:text-stone-900")
-                    }
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-              {slide === 0 && (
+            <div className="absolute top-2 right-2 z-10 inline-flex rounded-md border border-stone-300 bg-white/95 p-0.5 text-[11px] shadow-sm">
+              {SLIDES.map((name, i) => (
                 <button
-                  onClick={() => setEditing(true)}
-                  className="rounded-md px-3 py-1 text-xs font-medium border bg-white text-stone-600 border-stone-300 hover:bg-stone-50"
+                  key={name}
+                  onClick={() => pickSlide(i)}
+                  className={
+                    "px-2.5 py-0.5 rounded " +
+                    (slide === i ? "bg-stone-800 text-white" : "text-stone-600 hover:text-stone-900")
+                  }
                 >
-                  Edit sales
+                  {name}
                 </button>
-              )}
+              ))}
             </div>
           </section>
 
