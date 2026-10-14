@@ -24,7 +24,7 @@ type Group = {
   late: number;
 };
 
-export function ScheduleGantt() {
+export function ScheduleGantt({ reserveRight = 0 }: { reserveRight?: number }) {
   const { data, error } = useSWR<{ items: ScheduleRow[]; error?: string }>("/api/schedule", fetcher);
   const items = data?.items ?? [];
 
@@ -76,7 +76,7 @@ export function ScheduleGantt() {
 
   return (
     <div className="rounded-2xl bg-white border border-stone-200 p-4 shadow-sm h-full min-h-0 flex flex-col">
-      <div className="flex items-start justify-between gap-3 mb-2">
+      <div className="flex items-start justify-between gap-3 mb-2" style={{ paddingRight: reserveRight }}>
         <div>
           <h2 className="text-lg font-semibold text-stone-800">Product development: critical path</h2>
           <div className="text-xs text-stone-500">From the &ldquo;Schedule&rdquo; tab of the dashboard Google Sheet</div>
