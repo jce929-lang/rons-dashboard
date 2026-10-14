@@ -9,23 +9,19 @@ import { ScheduleGantt } from "@/components/ScheduleGantt";
 import { JobTracker } from "@/components/JobTracker";
 import { InventoryKpi } from "@/components/InventoryKpi";
 import { RevenuePlan } from "@/components/RevenuePlan";
+import { LightweldGantt } from "@/components/LightweldGantt";
 
 const SLIDES = ["Weekly sales", "Revenue plan"] as const;
-const ROTATE_MS = 20_000; // auto-advance on the TV
-const HOLD_MS = 120_000; // after someone picks a slide, stay on it this long
+const TR_SLIDES = ["Product dev", "LightWELD"] as const;
+const TOGGLE_SPACE = 190; // px kept clear in each pane's header for the toggle
 const RELOAD_MS = 30 * 60_000; // full page refresh, so the TV picks up new deploys
 
 export default function Page() {
   const [editing, setEditing] = useState(false);
-  const [slide, setSlide] = useState(0);
-  const holdUntil = useRef(0);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (Date.now() >= holdUntil.current) setSlide((s) => (s + 1) % SLIDES.length);
-    }, ROTATE_MS);
-    return () => clearInterval(id);
-  }, []);
+  // Panes don't rotate on their own. Whichever pane is picked stays up, and is remembered
+  // on this screen so the 30-minute reload doesn't flip it back.
+  const [slide, setSlide] = usePane("pane-top-left", SLIDES.length);
+  const [trSlide, setTrSlide] = usePane("pane-top-right", TR_SLIDES.length);
 
   // Reload the whole page every 30 minutes. If someone is typing or the sales editor is open,
   // wait and try again a minute later so nothing they entered is lost.
@@ -42,11 +38,6 @@ export default function Page() {
     id = setTimeout(tryReload, RELOAD_MS);
     return () => clearTimeout(id);
   }, []);
-
-  const pickSlide = (i: number) => {
-    holdUntil.current = Date.now() + HOLD_MS;
-    setSlide(i);
-  };
 
   return (
     <SWRConfig value={{ refreshInterval: 60000, revalidateOnFocus: true }}>
@@ -76,25 +67,13 @@ export default function Page() {
                 <RevenuePlan />
               </div>
             )}
-            <div className="absolute top-2 right-2 z-10 inline-flex rounded-md border border-stone-300 bg-white/95 p-0.5 text-[11px] shadow-sm">
-              {SLIDES.map((name, i) => (
-                <button
-                  key={name}
-                  onClick={() => pickSlide(i)}
-                  className={
-                    "px-2.5 py-0.5 rounded " +
-                    (slide === i ? "bg-stone-800 text-white" : "text-stone-600 hover:text-stone-900")
-                  }
-                >
-                  {name}
-                </button>
-              ))}
-            </div>
+            <PaneToggle names={SLIDES} value={slide} onPick={setSlide} />
           </section>
 
-          {/* Top-right quadrant: product development schedules */}
-          <section className="min-h-0">
-            <ScheduleGantt />
+          {/* Top-right quadrant: schedules (product development / LightWELD booth) */}
+          <section className="relative min-h-0">
+            {trSlide === 0 ? <ScheduleGantt reserveRight={TOGGLE_SPACE} /> : <LightweldGantt reserveRight={TOGGLE_SPACE} />}
+            <PaneToggle names={TR_SLIDES} value={trSlide} onPick={setTrSlide} />
           </section>
 
           {/* Bottom-left quadrant: shop job releases */}
@@ -131,5 +110,39 @@ export default function Page() {
         )}
       </main>
     </SWRConfig>
+  );
+}
+
+/** Remembers which pane a quadrant shows (per screen). Falls back to the first pane. */
+function usePane(key: string, count: number): [number, (i: number) => void] {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    try {
+      const v = Number(localStorage.getItem(key));
+      if (Number.isInteger(v) && v >= 0 && v < count) setValue(v);
+    } catch {}
+  }, [key, count]);
+  const pick = (i: number) => {
+    setValue(i);
+    try {
+      localStorage.setItem(key, String(i));
+    } catch {}
+  };
+  return [value, pick];
+}
+
+function PaneToggle({ names, value, onPick }: { names: readonly string[]; value: number; onPick: (i: number) => void }) {
+  return (
+    <div className="absolute top-2 right-2 z-30 inline-flex rounded-md border border-stone-300 bg-white/95 p-0.5 text-[11px] shadow-sm">
+      {names.map((name, i) => (
+        <button
+          key={name}
+          onClick={() => onPick(i)}
+          className={"px-2.5 py-0.5 rounded " + (value === i ? "bg-stone-800 text-white" : "text-stone-600 hover:text-stone-900")}
+        >
+          {name}
+        </button>
+      ))}
+    </div>
   );
 }
