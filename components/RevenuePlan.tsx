@@ -27,6 +27,18 @@ const monthLabel = (ym: string, withYear = false) => {
   const d = new Date(ym + "-15T12:00:00");
   return d.toLocaleDateString("en-US", withYear ? { month: "short", year: "numeric" } : { month: "short" });
 };
+// Fiscal year runs October–September and is named for the year it ends in (Oct 2026–Sep 2027 = FY27).
+const FY_START_MONTH = 10;
+function fiscalYear(ym: string) {
+  const y = Number(ym.slice(0, 4));
+  const m = Number(ym.slice(5, 7));
+  const startYear = m >= FY_START_MONTH ? y : y - 1;
+  const first = `${startYear}-${String(FY_START_MONTH).padStart(2, "0")}`;
+  const lastMonth = ((FY_START_MONTH + 10) % 12) + 1; // month before the start month
+  const last = `${lastMonth < FY_START_MONTH ? startYear + 1 : startYear}-${String(lastMonth).padStart(2, "0")}`;
+  return { first, last, name: `FY${String(Number(last.slice(0, 4)) % 100).padStart(2, "0")}` };
+}
+const shortMonthYear = (ym: string) => `${monthLabel(ym)} '${ym.slice(2, 4)}`;
 const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
 const fmtK = (v: number) => (Math.abs(v) >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`);
 
@@ -118,8 +130,9 @@ export function RevenuePlan() {
 
     const cur = rows.find((r) => r.month === thisMonth);
     const prev = [...rows].reverse().find((r) => r.month < thisMonth);
-    const year = thisMonth.slice(0, 4);
-    const yearRows = rows.filter((r) => r.month.startsWith(year));
+    const fy = fiscalYear(thisMonth);
+    const yearRows = rows.filter((r) => r.month >= fy.first && r.month <= fy.last);
+    const planThrough = yearRows.at(-1)?.month ?? fy.first;
     const sum = (xs: typeof rows, f: (r: (typeof rows)[number]) => number) => xs.reduce((s, r) => s + f(r), 0);
     const yearPlan = sum(yearRows, (r) => r.total);
     const yearActual = sum(yearRows, (r) => r.actual ?? 0);
@@ -132,7 +145,14 @@ export function RevenuePlan() {
       asOfLabel,
       cur: cur && { actual: cur.actual ?? 0, plan: cur.total, pace: cur.total * monthFrac, name: monthLabel(cur.month).toUpperCase() },
       prev: prev && { actual: prev.actual ?? 0, plan: prev.total, name: monthLabel(prev.month).toUpperCase() },
-      year: { year, actual: yearActual, plan: yearPlan, toDate: yearPlanToDate },
+      year: {
+        name: fy.name,
+        span: `${shortMonthYear(fy.first)}–${shortMonthYear(fy.last)}`,
+        planShort: yearRows.length < 12 ? shortMonthYear(planThrough) : null, // plan doesn't cover the whole year
+        actual: yearActual,
+        plan: yearPlan,
+        toDate: yearPlanToDate,
+      },
     };
   }, [plan, sales, cfg]);
 
@@ -166,12 +186,16 @@ export function RevenuePlan() {
               <Tile label={`${view.prev.name} (last month)`} actual={view.prev.actual} plan={view.prev.plan} />
             )}
             <Tile
-              label={`${view.year.year} total vs. year plan`}
+              label={`${view.year.name} (${view.year.span}) vs. plan`}
               actual={view.year.actual}
               plan={view.year.plan}
               target={view.year.toDate}
               targetLabel="plan to date"
-              note={`${pct(view.year.actual, view.year.plan)}% of the year plan · | = plan to date`}
+              note={
+                view.year.planShort
+                  ? `${pct(view.year.actual, view.year.plan)}% of plan · plan only runs through ${view.year.planShort}`
+                  : `${pct(view.year.actual, view.year.plan)}% of the year plan · | = plan to date`
+              }
             />
           </div>
 
