@@ -72,7 +72,7 @@ export function StatCards({ compact = false }: { compact?: boolean } = {}) {
         <MiniBrand label="Ford FOL sold" brand={t.fordFol} accent="text-blue-700" />
         <MiniBrand label="GM FOL sold" brand={t.gmFol} accent="text-teal-700" />
         <div className="rounded-xl bg-white border border-stone-200 shadow-sm px-2.5 py-1.5 min-w-0">
-          <div className="text-[10px] uppercase tracking-wider text-stone-500 truncate">Total</div>
+          <div className="text-[10px] uppercase tracking-wider text-stone-500 truncate">{sinceLabel(t.since)}</div>
           <div className="flex items-baseline gap-2">
             <span className="text-lg font-semibold tabular-nums leading-none text-emerald-700">{fmtMoney(t.revenue)}</span>
           </div>
@@ -90,7 +90,14 @@ export function StatCards({ compact = false }: { compact?: boolean } = {}) {
       <BrandCard label="Ford FOL sold" brand={t.fordFol} compact={compact} accent="text-blue-700" />
       <BrandCard label="GM FOL sold" brand={t.gmFol} compact={compact} accent="text-teal-700" />
       <SimpleCard label="Total units sold" value={fmtInt(t.totalUnits)} compact={compact} accent="text-stone-800" note={t.ram.total > 0 ? `incl. ${fmtInt(t.ram.total)} Ram USL` : undefined} />
-      <SimpleCard label="Total revenue" value={fmtMoney(t.revenue)} compact={compact} accent="text-emerald-700" />
+      <SimpleCard label={`${sinceLabel(t.since)} revenue`} value={fmtMoney(t.revenue)} compact={compact} accent="text-emerald-700" />
     </div>
   );
+}
+
+/** "Total since Sep '25": the totals cover every week in the sales master, not just this year. */
+function sinceLabel(since: string) {
+  if (!since) return "Total";
+  const d = new Date(since + "T12:00:00");
+  return `Total since ${d.toLocaleDateString("en-US", { month: "short" })} '${since.slice(2, 4)}`;
 }
