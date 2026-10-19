@@ -30,20 +30,49 @@ const monthLabel = (ym: string, withYear = false) => {
 const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
 const fmtK = (v: number) => (Math.abs(v) >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`);
 
-function Tile({ label, actual, plan, note }: { label: string; actual: number; plan: number; note?: string }) {
-  const p = pct(actual, plan);
+/**
+ * One number that matters, against its plan.
+ * The bar fills to actual / plan; the tick marks where the plan says we should be by now (if given).
+ */
+function Tile({
+  label,
+  actual,
+  plan,
+  target,
+  targetLabel,
+  note,
+}: {
+  label: string;
+  actual: number;
+  plan: number; // the full plan for the period (bar = 100%)
+  target?: number; // what the plan expects by now (defaults to the full plan)
+  targetLabel?: string;
+  note?: string;
+}) {
+  const goal = target ?? plan;
+  const diff = Math.round(actual - goal);
+  const ahead = diff >= 0;
+  const fill = plan > 0 ? Math.min(100, (actual / plan) * 100) : 0;
+  const tick = target != null && plan > 0 ? Math.min(100, (target / plan) * 100) : null;
   return (
     <div className="rounded-xl border border-stone-200 bg-white px-3 py-2 min-w-0">
       <div className="text-xs uppercase tracking-wider text-stone-500 truncate">{label}</div>
       <div className="flex items-baseline gap-2">
-        <span className="text-xl font-semibold tabular-nums text-stone-900">{fmtMoney(actual)}</span>
-        <span className="text-xs tabular-nums text-stone-500">of {fmtMoney(plan)}</span>
+        <span className="text-2xl font-semibold tabular-nums text-stone-900 leading-tight">{fmtMoney(actual)}</span>
+        <span className="text-xs tabular-nums text-stone-500 truncate">of {fmtMoney(plan)} plan</span>
       </div>
-      <div className="mt-1 flex items-center gap-2">
-        <div className="flex-1 h-1.5 rounded-full bg-stone-200 overflow-hidden">
-          <div className="h-full rounded-full" style={{ width: `${Math.min(100, p)}%`, background: ACTUAL_COLOR }} />
-        </div>
-        <span className="text-xs font-medium tabular-nums text-stone-700">{p}%</span>
+      <div className="relative mt-1 h-2 rounded-full bg-stone-200">
+        <div className="h-full rounded-full" style={{ width: `${fill}%`, background: ACTUAL_COLOR }} />
+        {tick != null && (
+          <div
+            className="absolute -top-1 -bottom-1 w-0.5 bg-stone-800"
+            style={{ left: `calc(${tick}% - 1px)` }}
+            title={`${targetLabel ?? "Plan to date"}: ${fmtMoney(goal)}`}
+          />
+        )}
+      </div>
+      <div className={"mt-1 text-xs font-semibold tabular-nums " + (ahead ? "text-emerald-700" : "text-red-600")}>
+        {ahead ? "▲" : "▼"} {fmtMoney(Math.abs(diff))} {ahead ? "ahead of" : "behind"} {targetLabel ?? "plan"}
       </div>
       {note && <div className="text-[11px] text-stone-500 truncate">{note}</div>}
     </div>
@@ -69,8 +98,15 @@ export function RevenuePlan() {
       actualByMonth.set(m, (actualByMonth.get(m) ?? 0) + rev);
     }
 
+    // Weekly data runs through the last reported week (week start + 6 days), not necessarily today.
+    const lastWeek = (sales?.items ?? []).filter((r) => r.type === "Actual").reduce((m, r) => (r.week_of > m ? r.week_of : m), "");
     const now = new Date();
-    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const asOf = lastWeek ? new Date(lastWeek + "T12:00:00") : now;
+    if (lastWeek) asOf.setDate(asOf.getDate() + 6);
+    const thisMonth = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}`;
+    const daysInMonth = new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate();
+    const monthFrac = Math.min(1, asOf.getDate() / daysInMonth);
+    const asOfLabel = asOf.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
     const rows = months.map((p) => ({
       ...p,
@@ -81,20 +117,22 @@ export function RevenuePlan() {
     }));
 
     const cur = rows.find((r) => r.month === thisMonth);
-    const full = rows.filter((r) => r.month < thisMonth);
+    const prev = [...rows].reverse().find((r) => r.month < thisMonth);
     const year = thisMonth.slice(0, 4);
-    const ytd = full.filter((r) => r.month.startsWith(year));
-    const last3 = full.slice(-3);
     const yearRows = rows.filter((r) => r.month.startsWith(year));
     const sum = (xs: typeof rows, f: (r: (typeof rows)[number]) => number) => xs.reduce((s, r) => s + f(r), 0);
+    const yearPlan = sum(yearRows, (r) => r.total);
+    const yearActual = sum(yearRows, (r) => r.actual ?? 0);
+    const yearPlanToDate =
+      sum(yearRows.filter((r) => r.month < thisMonth), (r) => r.total) + (cur ? cur.total * monthFrac : 0);
 
     return {
       rows,
       thisMonth,
-      cur,
-      ytd: { actual: sum(ytd, (r) => r.actual ?? 0), plan: sum(ytd, (r) => r.total), through: ytd.at(-1)?.longLabel },
-      last3: { actual: sum(last3, (r) => r.actual ?? 0) / Math.max(1, last3.length), plan: sum(last3, (r) => r.total) / Math.max(1, last3.length), from: last3[0]?.label, to: last3.at(-1)?.label },
-      yearPlan: { actual: sum(yearRows, (r) => r.actual ?? 0), plan: sum(yearRows, (r) => r.total), year },
+      asOfLabel,
+      cur: cur && { actual: cur.actual ?? 0, plan: cur.total, pace: cur.total * monthFrac, name: monthLabel(cur.month).toUpperCase() },
+      prev: prev && { actual: prev.actual ?? 0, plan: prev.total, name: monthLabel(prev.month).toUpperCase() },
+      year: { year, actual: yearActual, plan: yearPlan, toDate: yearPlanToDate },
     };
   }, [plan, sales, cfg]);
 
@@ -103,7 +141,7 @@ export function RevenuePlan() {
       <div className="flex items-start justify-between gap-3 mb-2">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">Revenue plan vs. actual</h2>
-          <div className="text-xs text-stone-500">Monthly revenue · plan from the &ldquo;Projections&rdquo; tab, actual from weekly sales</div>
+          <div className="text-xs text-stone-500">Monthly revenue · plan from the &ldquo;Projections&rdquo; tab, actual from the weekly sales master</div>
         </div>
       </div>
 
@@ -113,13 +151,28 @@ export function RevenuePlan() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-4 gap-2 mb-2">
+          <div className="grid grid-cols-3 gap-2 mb-2">
             {view.cur && (
-              <Tile label={`${view.cur.longLabel} so far`} actual={view.cur.actual ?? 0} plan={view.cur.total} note="month to date" />
+              <Tile
+                label={`${view.cur.name} so far`}
+                actual={view.cur.actual}
+                plan={view.cur.plan}
+                target={view.cur.pace}
+                targetLabel="plan pace"
+                note={`sales through ${view.asOfLabel} · | = plan pace`}
+              />
             )}
-            <Tile label={`${view.yearPlan.year} YTD`} actual={view.ytd.actual} plan={view.ytd.plan} note={view.ytd.through ? `through ${view.ytd.through}` : undefined} />
-            <Tile label="Last 3 months avg" actual={view.last3.actual} plan={view.last3.plan} note={view.last3.from ? `${view.last3.from}–${view.last3.to}, per month` : undefined} />
-            <Tile label={`${view.yearPlan.year} full-year plan`} actual={view.yearPlan.actual} plan={view.yearPlan.plan} note="actual so far vs. whole-year plan" />
+            {view.prev && (
+              <Tile label={`${view.prev.name} (last month)`} actual={view.prev.actual} plan={view.prev.plan} />
+            )}
+            <Tile
+              label={`${view.year.year} total vs. year plan`}
+              actual={view.year.actual}
+              plan={view.year.plan}
+              target={view.year.toDate}
+              targetLabel="plan to date"
+              note={`${pct(view.year.actual, view.year.plan)}% of the year plan · | = plan to date`}
+            />
           </div>
 
           <div className="flex-1 min-h-0">
