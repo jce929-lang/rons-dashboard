@@ -242,6 +242,7 @@ export function useSalesTotals() {
       (s, r) => s + Object.values(groupRevenue(r, cfg)).reduce((a, b) => a + b, 0),
       0
     );
-    return { fordUsl, gmUsl, ram, fordFol, gmFol, totalUnits, revenue };
+    const since = actuals.reduce((m, r) => (!m || r.week_of < m ? r.week_of : m), "");
+    return { fordUsl, gmUsl, ram, fordFol, gmFol, totalUnits, revenue, since };
   }, [salesData, configData]);
 }
