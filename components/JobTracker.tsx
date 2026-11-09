@@ -44,6 +44,15 @@ export function JobTracker() {
   const [form, setForm] = useState({ job: "", part: "", desc: "", qty: "", due: "", ops: "" });
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  // Sub-jobs start collapsed under their main job; click a job family to show them.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggleFamily = (fam: string) =>
+    setExpanded((cur) => {
+      const next = new Set(cur);
+      if (next.has(fam)) next.delete(fam);
+      else next.add(fam);
+      return next;
+    });
 
   const items = data?.items ?? [];
   const today = todayIso();
@@ -56,10 +65,23 @@ export function JobTracker() {
     }
     return [...map.entries()].map(([fam, jobs]) => {
       const top = jobs.find((j) => !j.parent) ?? jobs[0];
+      const subs = jobs.filter((j) => j !== top);
       const ops = jobs.flatMap((j) => j.ops);
-      return { fam, jobs, top, done: ops.filter((o) => o.done).length, total: ops.length };
+      const subOps = subs.flatMap((j) => j.ops);
+      return {
+        fam,
+        jobs,
+        top,
+        subs,
+        done: ops.filter((o) => o.done).length,
+        total: ops.length,
+        subDone: subOps.filter((o) => o.done).length,
+        subTotal: subOps.length,
+        subsFinished: subs.filter(isComplete).length,
+        subsLate: subs.filter((j) => !isComplete(j) && j.due && j.due < today).length,
+      };
     });
-  }, [items]);
+  }, [items, today]);
 
   const open = items.filter((j) => !isComplete(j)).length;
   const finished = items.length - open;
@@ -119,6 +141,57 @@ export function JobTracker() {
     mutate();
   }
 
+  function renderJob(j: ShopJob, sub: boolean) {
+    const complete = isComplete(j);
+    const late = !complete && j.due && j.due < today;
+    return (
+      <div
+        key={j.job}
+        className={
+          "flex items-start gap-3 py-1.5 border-b border-stone-100 " +
+          (sub ? "pl-7 pr-2 bg-stone-50/60 " : "px-2 ") +
+          (complete ? "bg-emerald-50" : "")
+        }
+      >
+        <div className={(sub ? "w-[calc(34%-20px)]" : "w-[34%]") + " shrink-0 min-w-0"}>
+          <div className="flex items-baseline gap-2">
+            <span className={"font-semibold tabular-nums text-sm " + (complete ? "text-stone-400 line-through" : "text-stone-900")}>
+              {j.job}
+            </span>
+            <span className={"text-sm truncate " + (complete ? "text-stone-400 line-through" : "text-stone-700")}>{j.part}</span>
+          </div>
+          <div className="flex items-baseline gap-2 text-xs text-stone-500 min-w-0">
+            <span className="truncate">{j.desc}</span>
+            <span className="tabular-nums whitespace-nowrap">qty {j.qty}</span>
+            {j.due && (
+              <span className={"tabular-nums whitespace-nowrap " + (late ? "text-red-600 font-semibold" : "")}>
+                due {fmtDate(j.due)}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex-1 flex flex-wrap gap-1.5">
+          {j.ops.map((o) => (
+            <button
+              key={o.op}
+              onClick={() => toggle(j, o.op)}
+              aria-pressed={o.done}
+              title={`Op ${o.op} · WC ${o.wc} · ${o.comp} complete / ${o.rem} remaining in M2M`}
+              className={
+                "inline-flex items-center gap-1.5 rounded-md pl-1 pr-2 py-1 text-xs font-medium border transition-colors " +
+                (o.done ? "bg-emerald-600 border-emerald-600 text-white" : "bg-white border-stone-300 text-stone-700 hover:border-stone-500")
+              }
+            >
+              <Check on={o.done} />
+              <span className="tabular-nums opacity-70">{o.op}</span>
+              <span className="whitespace-nowrap">{o.wcDesc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const input = "rounded-md border border-stone-300 px-2 py-1 text-sm";
 
   return (
@@ -131,6 +204,16 @@ export function JobTracker() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {groups.some((g) => g.subs.length > 0) && (
+            <button
+              onClick={() =>
+                setExpanded(expanded.size > 0 ? new Set() : new Set(groups.filter((g) => g.subs.length).map((g) => g.fam)))
+              }
+              className="rounded-md px-3 py-1 text-xs font-medium border bg-white text-stone-600 border-stone-300 hover:bg-stone-50"
+            >
+              {expanded.size > 0 ? "Collapse all" : "Expand all"}
+            </button>
+          )}
           {finished > 0 && (
             <button
               onClick={clearFinished}
@@ -191,82 +274,59 @@ export function JobTracker() {
             {error || data?.error ? "Couldn't load the Job Ops tab" : data ? "No jobs released yet. Click + Add job." : "Loading…"}
           </div>
         ) : (
-          groups.map((g) => (
-            <div key={g.fam} className="mb-2">
-              <div className="sticky top-0 z-10 bg-stone-100 rounded-md px-2 py-1 flex items-baseline gap-2 text-sm">
-                <span className="font-bold text-stone-900 tabular-nums">{g.fam}</span>
-                <span className="text-stone-700 truncate">
-                  {g.top.part} · {g.top.desc}
-                </span>
-                <span className="ml-auto text-xs text-stone-500 tabular-nums whitespace-nowrap">
-                  {g.done}/{g.total} ops
-                </span>
-                <span className="w-20 h-1.5 rounded-full bg-stone-300 overflow-hidden shrink-0 self-center">
-                  <span
-                    className="block h-full bg-emerald-600"
-                    style={{ width: `${g.total ? (g.done / g.total) * 100 : 0}%` }}
-                  />
-                </span>
-              </div>
+          groups.map((g) => {
+            const open = expanded.has(g.fam);
+            return (
+              <div key={g.fam} className="mb-2">
+                <button
+                  type="button"
+                  onClick={() => g.subs.length && toggleFamily(g.fam)}
+                  aria-expanded={g.subs.length ? open : undefined}
+                  className={
+                    "sticky top-0 z-10 w-full text-left bg-stone-100 rounded-md px-2 py-1 flex items-baseline gap-2 text-sm " +
+                    (g.subs.length ? "hover:bg-stone-200 cursor-pointer" : "cursor-default")
+                  }
+                >
+                  <span className="w-3 shrink-0 text-stone-500 text-xs">{g.subs.length ? (open ? "▾" : "▸") : ""}</span>
+                  <span className="font-bold text-stone-900 tabular-nums">{g.fam}</span>
+                  <span className="text-stone-700 truncate">
+                    {g.top.part} · {g.top.desc}
+                  </span>
+                  <span className="ml-auto text-xs text-stone-500 tabular-nums whitespace-nowrap">
+                    {g.done}/{g.total} ops
+                  </span>
+                  <span className="w-20 h-1.5 rounded-full bg-stone-300 overflow-hidden shrink-0 self-center">
+                    <span
+                      className="block h-full bg-emerald-600"
+                      style={{ width: `${g.total ? (g.done / g.total) * 100 : 0}%` }}
+                    />
+                  </span>
+                </button>
 
-              {g.jobs.map((j) => {
-                const complete = isComplete(j);
-                const late = !complete && j.due && j.due < today;
-                return (
-                  <div
-                    key={j.job}
-                    className={
-                      "flex items-start gap-3 px-2 py-1.5 border-b border-stone-100 " + (complete ? "bg-emerald-50" : "")
-                    }
+                {renderJob(g.top, false)}
+
+                {g.subs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => toggleFamily(g.fam)}
+                    className="w-full text-left flex items-center gap-2 pl-6 pr-2 py-1 text-xs text-stone-500 hover:text-stone-800 hover:bg-stone-50 border-b border-stone-100 tabular-nums"
                   >
-                    <div className="w-[34%] shrink-0 min-w-0">
-                      <div className="flex items-baseline gap-2">
-                        <span
-                          className={
-                            "font-semibold tabular-nums text-sm " + (complete ? "text-stone-400 line-through" : "text-stone-900")
-                          }
-                        >
-                          {j.job}
-                        </span>
-                        <span className={"text-sm truncate " + (complete ? "text-stone-400 line-through" : "text-stone-700")}>
-                          {j.part}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline gap-2 text-xs text-stone-500 min-w-0">
-                        <span className="truncate">{j.desc}</span>
-                        <span className="tabular-nums whitespace-nowrap">qty {j.qty}</span>
-                        {j.due && (
-                          <span className={"tabular-nums whitespace-nowrap " + (late ? "text-red-600 font-semibold" : "")}>
-                            due {fmtDate(j.due)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex-1 flex flex-wrap gap-1.5">
-                      {j.ops.map((o) => (
-                        <button
-                          key={o.op}
-                          onClick={() => toggle(j, o.op)}
-                          aria-pressed={o.done}
-                          title={`Op ${o.op} · WC ${o.wc} · ${o.comp} complete / ${o.rem} remaining in M2M`}
-                          className={
-                            "inline-flex items-center gap-1.5 rounded-md pl-1 pr-2 py-1 text-xs font-medium border transition-colors " +
-                            (o.done
-                              ? "bg-emerald-600 border-emerald-600 text-white"
-                              : "bg-white border-stone-300 text-stone-700 hover:border-stone-500")
-                          }
-                        >
-                          <Check on={o.done} />
-                          <span className="tabular-nums opacity-70">{o.op}</span>
-                          <span className="whitespace-nowrap">{o.wcDesc}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))
+                    <span className="w-3 shrink-0">{open ? "▾" : "▸"}</span>
+                    <span className="font-medium">
+                      {open ? "Hide" : "Show"} {g.subs.length} sub-job{g.subs.length === 1 ? "" : "s"}
+                    </span>
+                    <span>
+                      · {g.subDone}/{g.subTotal} ops done
+                      {g.subsFinished > 0 ? ` · ${g.subsFinished} finished` : ""}
+                    </span>
+                    {g.subsLate > 0 && <span className="text-red-600 font-semibold">· {g.subsLate} past due</span>}
+                  </button>
+                )}
+
+                {open && g.subs.map((j) => renderJob(j, true))}
+              </div>
+            );
+          })
         )}
       </div>
     </div>
