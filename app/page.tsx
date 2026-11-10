@@ -6,7 +6,6 @@ import { SalesChart } from "@/components/SalesChart";
 import { StatCards } from "@/components/StatCards";
 import { SalesEditor } from "@/components/SalesEditor";
 import { ScheduleGantt } from "@/components/ScheduleGantt";
-import { JobTracker } from "@/components/JobTracker";
 import { InventoryKpi } from "@/components/InventoryKpi";
 import { RevenuePlan } from "@/components/RevenuePlan";
 import { LightweldGantt } from "@/components/LightweldGantt";
@@ -43,9 +42,9 @@ export default function Page() {
     <SWRConfig value={{ refreshInterval: 60000, revalidateOnFocus: true }}>
       <main className="h-screen overflow-hidden bg-stone-50 p-3">
         <div className="grid grid-cols-2 grid-rows-2 gap-3 h-full">
-          {/* Top-left quadrant: slides (weekly sales / revenue plan).
+          {/* Top row, full width: EOSS sales slides (weekly sales / revenue plan & forecast).
               The slide toggle floats in the top-right corner so it doesn't take a row of its own. */}
-          <section className="relative min-h-0 flex flex-col gap-2">
+          <section className="relative min-h-0 col-span-2 flex flex-col gap-2">
             {slide === 0 ? (
               <>
                 {/* leave room on the right for the slide toggle */}
@@ -70,15 +69,10 @@ export default function Page() {
             <PaneToggle names={SLIDES} value={slide} onPick={setSlide} />
           </section>
 
-          {/* Top-right quadrant: schedules (product development / LightWELD booth) */}
+          {/* Bottom-left: schedules (product development / LightWELD booth) */}
           <section className="relative min-h-0">
             {trSlide === 0 ? <ScheduleGantt reserveRight={TOGGLE_SPACE} /> : <LightweldGantt reserveRight={TOGGLE_SPACE} />}
             <PaneToggle names={TR_SLIDES} value={trSlide} onPick={setTrSlide} />
-          </section>
-
-          {/* Bottom-left quadrant: shop job releases */}
-          <section className="min-h-0">
-            <JobTracker />
           </section>
 
           {/* Bottom-right quadrant: shop KPIs */}
