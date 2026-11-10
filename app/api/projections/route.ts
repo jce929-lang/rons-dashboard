@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { ensureSheet, readRange } from "@/lib/sheets";
+import { NextRequest, NextResponse } from "next/server";
+import { appendRows, batchWrite, ensureSheet, readRange } from "@/lib/sheets";
 import { num } from "@/lib/utils";
 import type { ProjectionMonth } from "@/lib/types";
 
@@ -66,5 +66,36 @@ export async function GET() {
     return NextResponse.json({ items });
   } catch (e) {
     return NextResponse.json({ items: [], error: (e as Error).message }, { status: 500 });
+  }
+}
+
+/**
+ * Update or extend the plan: { action: "upsert", rows: ProjectionMonth[] }.
+ * Months already in the tab are overwritten in place; new months are added at the end.
+ * Months not listed are left alone (e.g. past months).
+ */
+export async function POST(req: NextRequest) {
+  try {
+    const b = await req.json();
+    if (b.action !== "upsert") return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+    const rows = (b.rows ?? []) as Omit<ProjectionMonth, "total">[];
+    if (rows.length === 0 || rows.some((r) => !/^\d{4}-\d{2}$/.test(String(r.month)))) {
+      return NextResponse.json({ error: "Every row needs a month (YYYY-MM)" }, { status: 400 });
+    }
+    await ensureSheet(TAB, SEED);
+    const existing = await readRange(`${TAB}!A1:E`);
+    const rowOf = new Map<string, number>();
+    existing.forEach((r, i) => {
+      const m = toMonth(r[0]);
+      if (i > 0 && m) rowOf.set(m, i + 1);
+    });
+    const cells = (r: Omit<ProjectionMonth, "total">) => [`'${r.month}`, num(r.uslWeb), num(r.uslDist), num(r.closet), num(r.handgun)];
+    const updates = rows.filter((r) => rowOf.has(r.month)).map((r) => ({ range: `${TAB}!A${rowOf.get(r.month)}:E${rowOf.get(r.month)}`, values: [cells(r)] }));
+    const appends = rows.filter((r) => !rowOf.has(r.month)).sort((a, b) => a.month.localeCompare(b.month)).map(cells);
+    await batchWrite(updates);
+    await appendRows(`${TAB}!A:E`, appends);
+    return NextResponse.json({ ok: true, updated: updates.length, added: appends.length });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }
