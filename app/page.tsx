@@ -12,6 +12,8 @@ import { LightweldGantt } from "@/components/LightweldGantt";
 
 const SLIDES = ["Weekly sales", "Revenue plan"] as const;
 const TR_SLIDES = ["Product dev", "LightWELD"] as const;
+const MB_SLIDES = ["Indianapolis", "Cincinnati"] as const;
+const MB_LOCS = ["indy", "cincinnati"] as const;
 const TOGGLE_SPACE = 190; // px kept clear in each pane's header for the toggle
 const RELOAD_MS = 30 * 60_000; // full page refresh, so the TV picks up new deploys
 
@@ -21,6 +23,7 @@ export default function Page() {
   // on this screen so the 30-minute reload doesn't flip it back.
   const [slide, setSlide] = usePane("pane-top-left", SLIDES.length);
   const [trSlide, setTrSlide] = usePane("pane-top-right", TR_SLIDES.length);
+  const [mbSlide, setMbSlide] = usePane("pane-bottom-right", MB_SLIDES.length);
 
   // Reload the whole page every 30 minutes. If someone is typing or the sales editor is open,
   // wait and try again a minute later so nothing they entered is lost.
@@ -75,9 +78,10 @@ export default function Page() {
             <PaneToggle names={TR_SLIDES} value={trSlide} onPick={setTrSlide} />
           </section>
 
-          {/* Bottom-right: Mailbox & Streetscapes (live from Jobber) */}
-          <section className="min-h-0">
-            <MailboxPane />
+          {/* Bottom-right: Mailbox & Streetscapes (live from Jobber), one tab per location */}
+          <section className="relative min-h-0">
+            <MailboxPane key={MB_LOCS[mbSlide]} loc={MB_LOCS[mbSlide]} reserveRight={TOGGLE_SPACE} />
+            <PaneToggle names={MB_SLIDES} value={mbSlide} onPick={setMbSlide} />
           </section>
         </div>
 
