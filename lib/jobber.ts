@@ -12,6 +12,19 @@ export const JOBBER_API_VERSION = "2025-04-16";
 const AUTH_TAB = "Jobber Auth";
 const AUTH_HEADER = ["Refresh token (encrypted)", "Account", "Account ID", "Connected", "Note"];
 
+// Each location has its own Jobber account and its own row in the "Jobber Auth" tab.
+// Indianapolis keeps row 2, which is where the original single connection was saved.
+export const LOCATIONS = {
+  indy: { label: "Indianapolis", row: 2 },
+  cincinnati: { label: "Cincinnati", row: 3 },
+} as const;
+export type Loc = keyof typeof LOCATIONS;
+export const DEFAULT_LOC: Loc = "indy";
+export function parseLoc(v: string | null | undefined): Loc {
+  return v && v in LOCATIONS ? (v as Loc) : DEFAULT_LOC;
+}
+export const connectPath = (loc: Loc) => (loc === DEFAULT_LOC ? "/api/jobber/connect" : `/api/jobber/connect?loc=${loc}`);
+
 export function jobberConfig() {
   const clientId = process.env.JOBBER_CLIENT_ID;
   const clientSecret = process.env.JOBBER_CLIENT_SECRET;
@@ -59,9 +72,10 @@ export function verifyState(state: string) {
 // ---------- stored connection ----------
 export type StoredConnection = { refreshToken: string; account: string; accountId: string; connectedAt: string };
 
-export async function loadConnection(): Promise<StoredConnection | null> {
+export async function loadConnection(loc: Loc = DEFAULT_LOC): Promise<StoredConnection | null> {
   await ensureSheet(AUTH_TAB, [AUTH_HEADER]);
-  const rows = await readRange(`${AUTH_TAB}!A2:D2`);
+  const row = LOCATIONS[loc].row;
+  const rows = await readRange(`${AUTH_TAB}!A${row}:D${row}`);
   const r = rows[0];
   if (!r || !r[0]) return null;
   try {
@@ -71,11 +85,18 @@ export async function loadConnection(): Promise<StoredConnection | null> {
   }
 }
 
-export async function saveConnection(c: StoredConnection) {
+export async function saveConnection(c: StoredConnection, loc: Loc = DEFAULT_LOC) {
   await ensureSheet(AUTH_TAB, [AUTH_HEADER]);
-  await writeRange(`${AUTH_TAB}!A1:E2`, [
-    AUTH_HEADER,
-    [encrypt(c.refreshToken), c.account, c.accountId, c.connectedAt, "Managed by the dashboard. Don't edit; reconnect at /api/jobber/connect"],
+  const row = LOCATIONS[loc].row;
+  await writeRange(`${AUTH_TAB}!A1:E1`, [AUTH_HEADER]);
+  await writeRange(`${AUTH_TAB}!A${row}:E${row}`, [
+    [
+      encrypt(c.refreshToken),
+      c.account,
+      c.accountId,
+      c.connectedAt,
+      `${LOCATIONS[loc].label}. Managed by the dashboard. Don't edit; reconnect at ${connectPath(loc)}`,
+    ],
   ]);
 }
 
@@ -99,8 +120,8 @@ export function exchangeCode(code: string, redirectUri: string) {
   return tokenRequest({ grant_type: "authorization_code", code, redirect_uri: redirectUri });
 }
 
-// Access tokens last ~60 minutes; keep one in memory per server instance.
-let cached: { token: string; exp: number } | null = null;
+// Access tokens last ~60 minutes; keep one per location in memory per server instance.
+const cached = new Map<Loc, { token: string; exp: number }>();
 
 function tokenExpiry(token: string) {
   try {
@@ -110,29 +131,36 @@ function tokenExpiry(token: string) {
   return Date.now() + 50 * 60_000;
 }
 
-async function accessToken(force = false) {
-  if (!force && cached && cached.exp - Date.now() > 2 * 60_000) return cached.token;
-  const conn = await loadConnection();
-  if (!conn) throw new JobberNotConnected();
+async function accessToken(loc: Loc, force = false) {
+  const hit = cached.get(loc);
+  if (!force && hit && hit.exp - Date.now() > 2 * 60_000) return hit.token;
+  const conn = await loadConnection(loc);
+  if (!conn) throw new JobberNotConnected(loc);
   const t = await tokenRequest({ grant_type: "refresh_token", refresh_token: conn.refreshToken });
   if (t.refresh_token && t.refresh_token !== conn.refreshToken) {
-    await saveConnection({ ...conn, refreshToken: t.refresh_token }); // only happens if rotation gets turned on
+    await saveConnection({ ...conn, refreshToken: t.refresh_token }, loc); // only happens if rotation gets turned on
   }
-  cached = { token: t.access_token, exp: tokenExpiry(t.access_token) };
-  return cached.token;
+  const fresh = { token: t.access_token, exp: tokenExpiry(t.access_token) };
+  cached.set(loc, fresh);
+  return fresh.token;
 }
 
 export class JobberNotConnected extends Error {
-  constructor() {
-    super("Jobber isn't connected yet. A Jobber admin needs to open /api/jobber/connect once.");
+  constructor(loc: Loc = DEFAULT_LOC) {
+    super(`Jobber (${LOCATIONS[loc].label}) isn't connected yet. A Jobber admin needs to open ${connectPath(loc)} once.`);
   }
 }
 
 // ---------- GraphQL ----------
-export async function jobberQuery<T = unknown>(query: string, variables: Record<string, unknown> = {}, token?: string): Promise<T> {
+export async function jobberQuery<T = unknown>(
+  query: string,
+  variables: Record<string, unknown> = {},
+  token?: string,
+  loc: Loc = DEFAULT_LOC
+): Promise<T> {
   let throttles = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const bearer = token ?? (await accessToken(attempt > 0));
+    const bearer = token ?? (await accessToken(loc, attempt > 0));
     const res = await fetch(`${API}/graphql`, {
       method: "POST",
       headers: {
