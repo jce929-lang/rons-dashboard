@@ -44,10 +44,11 @@ function Step({ label, count, value, note, alert }: { label: string; count: numb
 
 const Arrow = () => <span className="text-stone-300 self-center shrink-0">›</span>;
 
-export function MailboxPane() {
-  const { data, error } = useSWR<Summary & { error?: string; notConnected?: boolean }>("/api/jobber/summary", fetcher, {
+export function MailboxPane({ loc = "indy", reserveRight = 0 }: { loc?: "indy" | "cincinnati"; reserveRight?: number }) {
+  const { data, error } = useSWR<Summary & { error?: string; notConnected?: boolean }>(`/api/jobber/summary?loc=${loc}`, fetcher, {
     refreshInterval: 10 * 60_000,
   });
+  const place = loc === "cincinnati" ? "Cincinnati" : "Indianapolis";
 
   const ok = data && !data.error && data.months;
   const months = ok ? data.months : [];
@@ -62,10 +63,10 @@ export function MailboxPane() {
 
   return (
     <div className="rounded-2xl bg-white border border-stone-200 p-4 shadow-sm h-full min-h-0 flex flex-col">
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div>
-          <h2 className="text-lg font-semibold text-stone-800">Mailbox &amp; Streetscapes</h2>
-          <div className="text-xs text-stone-500">
+      <div className="flex items-start justify-between gap-3 mb-2" style={{ paddingRight: reserveRight }}>
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-stone-800 truncate">Mailbox &amp; Streetscapes · {place}</h2>
+          <div className="text-xs text-stone-500 truncate">
             {ok ? `Live from Jobber · updated ${updated}` : "From Jobber"}
             {loadingMonths > 0 && <span className="text-amber-700"> · still loading {loadingMonths} older month{loadingMonths === 1 ? "" : "s"}</span>}
           </div>
@@ -75,7 +76,7 @@ export function MailboxPane() {
       {!ok ? (
         <div className="flex-1 flex items-center justify-center text-stone-400 text-center px-6">
           {data?.notConnected
-            ? "Jobber isn't connected. A Jobber admin needs to open /api/jobber/connect once."
+            ? `${place}'s Jobber account isn't connected yet. An admin on that Jobber account needs to open the connect link once.`
             : error || data?.error
             ? `Couldn't load Jobber data${data?.error ? `: ${data.error}` : ""}`
             : "Loading from Jobber…"}
