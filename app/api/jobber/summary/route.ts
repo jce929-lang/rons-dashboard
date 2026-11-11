@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { JobberNotConnected, jobberQuery } from "@/lib/jobber";
+import { ensureSheet, readRange, writeRange } from "@/lib/sheets";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -13,7 +14,7 @@ type Page<T> = { nodes: T[]; pageInfo: { hasNextPage: boolean; endCursor: string
 
 export type Summary = {
   updatedAt: string;
-  months: { month: string; invoiced: number; paid: number; owed: number }[];
+  months: { month: string; invoiced: number; paid: number; owed: number; invoices: number; complete: boolean }[];
   owed: { total: number; overdue: number; count: number; overdueCount: number };
   pipeline: {
     requests: number;
@@ -27,7 +28,7 @@ export type Summary = {
   };
   winRate: { won: number; quoted: number; days: number };
   // Counts by Jobber status, for checking what the pipeline numbers are made of.
-  detail: { jobs: Record<string, number>; requests: Record<string, number>; quotes: Record<string, number> };
+  detail: { jobs: Record<string, number>; requests: Record<string, number>; quotes: Record<string, number>; monthsRefreshed: string[] };
 };
 
 const iso = (d: Date) => d.toISOString();
@@ -40,22 +41,85 @@ async function seq<A, R>(xs: A[], f: (x: A) => Promise<R>): Promise<R[]> {
   return out;
 }
 
-/** Walk every page of a connection (50 at a time, capped so one call can't run away). */
-async function all<T>(field: string, filter: Record<string, unknown>, nodeFields: string, maxPages = 30): Promise<T[]> {
+/** Walk every page of a connection, capped so one call can't run away. Also returns Jobber's own total count. */
+async function allWithCount<T>(field: string, filter: Record<string, unknown>, nodeFields: string, maxPages = 30, pageSize = 50) {
   const q = `query ($filter: ${filterType(field)}, $after: String) {
-    ${field}(filter: $filter, first: 50, after: $after) { nodes { ${nodeFields} } pageInfo { hasNextPage endCursor } }
+    ${field}(filter: $filter, first: ${pageSize}, after: $after) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage endCursor } }
   }`;
   const out: T[] = [];
+  let total = 0;
   let after: string | null = null;
   for (let i = 0; i < maxPages; i++) {
     const data: Record<string, Page<T>> = await jobberQuery(q, { filter, after });
     const page: Page<T> = data[field];
+    total = n(page.totalCount);
     out.push(...page.nodes);
     if (!page.pageInfo.hasNextPage) break;
     after = page.pageInfo.endCursor;
-    await sleep(150); // stay well under Jobber's rate limit
+    await sleep(100); // stay well under Jobber's rate limit
   }
-  return out;
+  return { nodes: out, total };
+}
+async function all<T>(field: string, filter: Record<string, unknown>, nodeFields: string, maxPages = 30): Promise<T[]> {
+  return (await allWithCount<T>(field, filter, nodeFields, maxPages)).nodes;
+}
+
+// ---------- monthly invoice totals, saved in the "Jobber Monthly" sheet tab ----------
+// Pulling a year of invoices takes too long for one request, so each month is pulled on its own and saved.
+// The current and previous month refresh every time; older months refresh once a day (payments still land on them).
+const MONTH_TAB = "Jobber Monthly";
+const MONTH_HEADER = ["Month", "Invoiced", "Paid", "Still owed", "Invoices", "Jobber count", "Refreshed"];
+type MonthRow = { month: string; invoiced: number; paid: number; owed: number; invoices: number; expected: number; refreshed: string };
+
+async function readMonths(): Promise<Map<string, MonthRow>> {
+  await ensureSheet(MONTH_TAB, [MONTH_HEADER]);
+  const rows = await readRange(`${MONTH_TAB}!A2:G`);
+  const num = (v: string | undefined) => Number(String(v ?? "").replace(/[$,]/g, "")) || 0;
+  return new Map(
+    rows
+      .filter((r) => /^\d{4}-\d{2}$/.test((r[0] ?? "").replace(/^'/, "")))
+      .map((r) => {
+        const month = r[0].replace(/^'/, "");
+        return [month, { month, invoiced: num(r[1]), paid: num(r[2]), owed: num(r[3]), invoices: num(r[4]), expected: num(r[5]), refreshed: r[6] ?? "" }];
+      })
+  );
+}
+
+async function writeMonths(m: Map<string, MonthRow>) {
+  const rows = [...m.values()].sort((a, b) => a.month.localeCompare(b.month));
+  await writeRange(`${MONTH_TAB}!A1:G${rows.length + 1}`, [
+    MONTH_HEADER,
+    ...rows.map((r) => [`'${r.month}`, Math.round(r.invoiced * 100) / 100, Math.round(r.paid * 100) / 100, Math.round(r.owed * 100) / 100, r.invoices, r.expected, r.refreshed]),
+  ]);
+}
+
+async function pullMonth(month: string): Promise<MonthRow> {
+  type Inv = { issuedDate: string | null; invoiceStatus: string; amounts: { total: number; invoiceBalance: number } };
+  const [y, mo] = month.split("-").map(Number);
+  const start = new Date(Date.UTC(y, mo - 1, 1));
+  const end = new Date(Date.UTC(y, mo, 1));
+  const filter = { issuedDate: { after: new Date(start.getTime() - 1).toISOString(), before: end.toISOString() } };
+  const fields = "issuedDate invoiceStatus amounts { total invoiceBalance }";
+  let res: { nodes: Inv[]; total: number };
+  try {
+    res = await allWithCount<Inv>("invoices", filter, fields, 80, 100);
+  } catch {
+    res = await allWithCount<Inv>("invoices", filter, fields, 160, 50); // page size Jobber always accepts
+  }
+  const { nodes, total } = res;
+  const row: MonthRow = { month, invoiced: 0, paid: 0, owed: 0, invoices: 0, expected: total, refreshed: new Date().toISOString() };
+  for (const inv of nodes) {
+    if (inv.invoiceStatus === "draft") continue;
+    const t = n(inv.amounts?.total);
+    const bal = inv.invoiceStatus === "bad_debt" ? 0 : n(inv.amounts?.invoiceBalance);
+    row.invoiced += t;
+    row.owed += bal;
+    row.paid += Math.max(0, t - bal);
+    row.invoices++;
+  }
+  row.expected = Math.max(total, nodes.length);
+  if (nodes.length < total) row.refreshed = ""; // didn't get everything: try again next time
+  return row;
 }
 
 /** Just the count for a filter. */
@@ -75,27 +139,34 @@ async function build(): Promise<Summary> {
   const winDays = 90;
   const winFrom = new Date(now.getTime() - winDays * 86400_000);
 
-  type Inv = { issuedDate: string | null; invoiceStatus: string; amounts: { total: number; invoiceBalance: number } };
   type Owed = { invoiceStatus: string; amounts: { invoiceBalance: number } };
   type Qt = { quoteStatus: string; amounts: { total: number } };
   type Jb = { uninvoicedTotal: number };
 
-  // Invoices issued over the last 13 months, bucketed by issue month.
-  const invoices = await all<Inv>("invoices", { issuedDate: { after: iso(firstMonth) } }, "issuedDate invoiceStatus amounts { total invoiceBalance }");
-  const byMonth = new Map<string, { invoiced: number; paid: number; owed: number }>();
+  // Invoices by issue month for this month + the 12 before it, from the saved monthly totals.
+  const started = Date.now();
+  const saved = await readMonths();
+  const monthKeys: string[] = [];
   for (let d = new Date(firstMonth); d <= now; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
-    byMonth.set(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, { invoiced: 0, paid: 0, owed: 0 });
+    monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
-  for (const inv of invoices) {
-    if (!inv.issuedDate || inv.invoiceStatus === "draft") continue;
-    const m = byMonth.get(inv.issuedDate.slice(0, 7));
-    if (!m) continue;
-    const total = n(inv.amounts?.total);
-    const balance = inv.invoiceStatus === "bad_debt" ? 0 : n(inv.amounts?.invoiceBalance);
-    m.invoiced += total;
-    m.owed += balance;
-    m.paid += Math.max(0, total - balance);
+  const refreshed: string[] = [];
+  for (const [i, month] of monthKeys.entries()) {
+    const recentMonth = i >= monthKeys.length - 2;
+    const prev = saved.get(month);
+    const stale = !prev || !prev.refreshed || Date.now() - Date.parse(prev.refreshed) > 24 * 3600_000;
+    if (!recentMonth && !stale) continue;
+    if (!recentMonth && Date.now() - started > 35_000) continue; // out of time this run; the next refresh picks it up
+    saved.set(month, await pullMonth(month));
+    refreshed.push(month);
   }
+  if (refreshed.length) await writeMonths(saved);
+  const byMonth = new Map(
+    monthKeys.map((m) => {
+      const r = saved.get(m);
+      return [m, { invoiced: r?.invoiced ?? 0, paid: r?.paid ?? 0, owed: r?.owed ?? 0, invoices: r?.invoices ?? 0, complete: !!r?.refreshed }];
+    })
+  );
 
   // Everything still owed, any age.
   const owedLists = await seq(["awaiting_payment", "sent_not_due", "past_due"], (status) =>
@@ -150,6 +221,7 @@ async function build(): Promise<Summary> {
       jobs: Object.fromEntries([...JOB.map((k, i) => [k, activeCounts[i]]), ["late", lateJobs], ["requires_invoicing", toInvoice.length]]),
       requests: Object.fromEntries(REQ.map((k, i) => [k, requestCounts[i]])),
       quotes: Object.fromEntries(QUO.map((k, i) => [k, quoteCounts[i]])),
+      monthsRefreshed: refreshed,
     },
   };
 }
