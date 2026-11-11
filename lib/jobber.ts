@@ -130,6 +130,7 @@ export class JobberNotConnected extends Error {
 
 // ---------- GraphQL ----------
 export async function jobberQuery<T = unknown>(query: string, variables: Record<string, unknown> = {}, token?: string): Promise<T> {
+  let throttles = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     const bearer = token ?? (await accessToken(attempt > 0));
     const res = await fetch(`${API}/graphql`, {
@@ -144,6 +145,17 @@ export async function jobberQuery<T = unknown>(query: string, variables: Record<
     });
     if (res.status === 401 && !token && attempt === 0) continue; // stale access token: refresh once
     const json = await res.json().catch(() => ({}));
+    // Jobber meters API use; when the budget runs low it answers THROTTLED. Wait for it to refill and retry.
+    const throttled = res.status === 429 || json.errors?.some((e: { extensions?: { code?: string } }) => e.extensions?.code === "THROTTLED");
+    if (throttled && throttles < 5) {
+      const st = json.extensions?.cost?.throttleStatus;
+      const need = Number(json.extensions?.cost?.requestedQueryCost) || 1000;
+      const waitMs = st?.restoreRate ? Math.ceil(((need - (st.currentlyAvailable ?? 0)) / st.restoreRate) * 1000) + 250 : 2000 * (throttles + 1);
+      await new Promise((r) => setTimeout(r, Math.min(Math.max(waitMs, 500), 8000)));
+      throttles++;
+      attempt--; // retry without counting it as a token refresh
+      continue;
+    }
     if (!res.ok || json.errors?.length) {
       throw new Error(`Jobber query failed (${res.status}): ${JSON.stringify(json.errors ?? json).slice(0, 300)}`);
     }
