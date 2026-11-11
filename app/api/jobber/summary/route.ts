@@ -100,13 +100,7 @@ async function pullMonth(month: string): Promise<MonthRow> {
   const end = new Date(Date.UTC(y, mo, 1));
   const filter = { issuedDate: { after: new Date(start.getTime() - 1).toISOString(), before: end.toISOString() } };
   const fields = "issuedDate invoiceStatus amounts { total invoiceBalance }";
-  let res: { nodes: Inv[]; total: number };
-  try {
-    res = await allWithCount<Inv>("invoices", filter, fields, 80, 100);
-  } catch {
-    res = await allWithCount<Inv>("invoices", filter, fields, 160, 50); // page size Jobber always accepts
-  }
-  const { nodes, total } = res;
+  const { nodes, total } = await allWithCount<Inv>("invoices", filter, fields, 160, 50);
   const row: MonthRow = { month, invoiced: 0, paid: 0, owed: 0, invoices: 0, expected: total, refreshed: new Date().toISOString() };
   for (const inv of nodes) {
     if (inv.invoiceStatus === "draft") continue;
@@ -228,7 +222,9 @@ async function build(): Promise<Summary> {
 
 export async function GET() {
   try {
-    if (!cache || Date.now() - cache.at > CACHE_MS) cache = { at: Date.now(), data: await build() };
+    // Keep a partial result (older months still loading) for only a minute so the backfill keeps going.
+    const ttl = cache?.data.months.some((m) => !m.complete) ? 60_000 : CACHE_MS;
+    if (!cache || Date.now() - cache.at > ttl) cache = { at: Date.now(), data: await build() };
     return NextResponse.json(cache.data);
   } catch (e) {
     const notConnected = e instanceof JobberNotConnected;
