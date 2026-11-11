@@ -53,7 +53,10 @@ export function MailboxPane() {
   const months = ok ? data.months : [];
   const cur = months.at(-1);
   const prev = months.at(-2);
-  const last12 = months.slice(-12).reduce((s, m) => s + m.invoiced, 0);
+  // Last 12 full months (the current month is still in progress), matching how sales history is reported.
+  const full12 = months.slice(-13, -1);
+  const last12 = full12.reduce((s, m) => s + m.invoiced, 0);
+  const shortMonth = (ym?: string) => (ym ? new Date(ym + "-15T12:00:00").toLocaleDateString("en-US", { month: "short", year: "2-digit" }).replace(" ", " '") : "");
   const updated = ok ? new Date(data.updatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
   const loadingMonths = months.filter((m) => !m.complete).length;
 
@@ -85,7 +88,11 @@ export function MailboxPane() {
               value={fmtMoney(cur?.invoiced ?? 0)}
               sub={prev ? `last month ${fmtMoney(prev.invoiced)}` : undefined}
             />
-            <Tile label="Last 12 months" value={fmtMoney(last12)} sub={`${fmtMoney(Math.round(last12 / 12))} / month avg`} />
+            <Tile
+              label="Last 12 full months"
+              value={fmtMoney(last12)}
+              sub={`${shortMonth(full12[0]?.month)}–${shortMonth(full12.at(-1)?.month)} · ${fmtMoney(Math.round(last12 / 12))}/mo avg`}
+            />
             <Tile
               label="Owed to us"
               value={fmtMoney(data.owed.total)}
