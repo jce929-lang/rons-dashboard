@@ -4,7 +4,7 @@ import { jobberQuery } from "@/lib/jobber";
 export const dynamic = "force-dynamic";
 
 // Field names and types only (GraphQL introspection), for designing the mailbox pane. No business data.
-const ALLOWED = new Set(["Query", "Invoice", "Job", "Quote", "Request", "Client", "Amounts", "InvoiceAmounts", "QuoteAmounts", "JobAmounts", "Payment", "PaymentRecord", "Visit", "LineItem", "Property", "InvoiceFilterAttributes", "JobFilterAttributes", "QuoteFilterAttributes", "RequestFilterAttributes", "InvoiceConnection", "JobConnection", "QuoteConnection", "RequestConnection"]);
+const ALLOWED = new Set(["Query", "Invoice", "Job", "Quote", "Request", "Client", "Amounts", "InvoiceAmounts", "QuoteAmounts", "JobAmounts", "Payment", "PaymentRecord", "Visit", "LineItem", "Property", "InvoiceFilterAttributes", "JobFilterAttributes", "QuoteFilterAttributes", "RequestFilterAttributes", "InvoiceConnection", "JobConnection", "QuoteConnection", "RequestConnection", "InvoiceStatusTypeEnum", "JobStatusTypeEnum", "QuoteStatusTypeEnum", "RequestStatusTypeEnum", "Iso8601DateTimeRangeInput", "PageInfo", "PaymentRecord", "PaymentRecordFilterAttributes", "JobBalanceTotals"]);
 
 const Q = `query ($name: String!) { __type(name: $name) { name kind
   fields { name type { name kind ofType { name kind ofType { name kind } } } args { name type { name kind ofType { name kind } } } }
