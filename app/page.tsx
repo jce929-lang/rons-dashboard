@@ -6,7 +6,7 @@ import { SalesChart } from "@/components/SalesChart";
 import { StatCards } from "@/components/StatCards";
 import { SalesEditor } from "@/components/SalesEditor";
 import { ScheduleGantt } from "@/components/ScheduleGantt";
-import { InventoryKpi } from "@/components/InventoryKpi";
+import { MailboxPane } from "@/components/MailboxPane";
 import { RevenuePlan } from "@/components/RevenuePlan";
 import { LightweldGantt } from "@/components/LightweldGantt";
 
@@ -75,9 +75,9 @@ export default function Page() {
             <PaneToggle names={TR_SLIDES} value={trSlide} onPick={setTrSlide} />
           </section>
 
-          {/* Bottom-right quadrant: shop KPIs */}
+          {/* Bottom-right: Mailbox & Streetscapes (live from Jobber) */}
           <section className="min-h-0">
-            <InventoryKpi />
+            <MailboxPane />
           </section>
         </div>
 
