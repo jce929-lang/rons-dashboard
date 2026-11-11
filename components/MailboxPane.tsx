@@ -89,9 +89,9 @@ export function MailboxPane() {
               subTone={data.owed.overdue > 0 ? "bad" : "muted"}
             />
             <Tile
-              label={`Quote win rate · ${data.winRate.days} days`}
-              value={data.winRate.decided ? `${pct(data.winRate.won, data.winRate.decided)}%` : "—"}
-              sub={`${data.winRate.won} won of ${data.winRate.decided} decided · ${data.winRate.sent} sent`}
+              label={`Quote close rate · ${data.winRate.days} days`}
+              value={data.winRate.quoted ? `${pct(data.winRate.won, data.winRate.quoted)}%` : "—"}
+              sub={`${data.winRate.won} won of ${data.winRate.quoted} quotes`}
             />
           </div>
 
@@ -144,13 +144,17 @@ export function MailboxPane() {
           <div className="mt-2">
             <div className="text-[11px] uppercase tracking-wider text-stone-500 mb-1">Pipeline right now</div>
             <div className="flex items-stretch gap-1.5">
-              <Step label="Open requests" count={data.pipeline.requests} />
+              <Step
+                label="Open requests"
+                count={data.pipeline.requests}
+                note={data.pipeline.changesRequested ? `${data.pipeline.changesRequested} quote changes requested` : undefined}
+              />
               <Arrow />
               <Step
-                label="Quotes out"
+                label={`Quotes out · ${data.winRate.days} days`}
                 count={data.pipeline.quotesOut.count}
                 value={data.pipeline.quotesOut.value}
-                note={data.pipeline.changesRequested ? `${data.pipeline.changesRequested} changes requested` : undefined}
+                note={`${data.pipeline.quotesOut.allTime.toLocaleString()} open all-time`}
               />
               <Arrow />
               <Step label="Approved quotes" count={data.pipeline.approved.count} value={data.pipeline.approved.value} />
@@ -158,7 +162,7 @@ export function MailboxPane() {
               <Step
                 label="Active jobs"
                 count={data.pipeline.activeJobs}
-                note={data.pipeline.lateJobs ? `${data.pipeline.lateJobs} late` : undefined}
+                note={data.pipeline.lateJobs ? `${data.pipeline.lateJobs} late · ${data.pipeline.todayJobs} today` : `${data.pipeline.todayJobs} today`}
                 alert={data.pipeline.lateJobs > 0}
               />
               <Arrow />
