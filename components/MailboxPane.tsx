@@ -55,13 +55,17 @@ export function MailboxPane() {
   const prev = months.at(-2);
   const last12 = months.slice(-12).reduce((s, m) => s + m.invoiced, 0);
   const updated = ok ? new Date(data.updatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+  const loadingMonths = months.filter((m) => !m.complete).length;
 
   return (
     <div className="rounded-2xl bg-white border border-stone-200 p-4 shadow-sm h-full min-h-0 flex flex-col">
       <div className="flex items-start justify-between gap-3 mb-2">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">Mailbox &amp; Streetscapes</h2>
-          <div className="text-xs text-stone-500">{ok ? `Live from Jobber · updated ${updated}` : "From Jobber"}</div>
+          <div className="text-xs text-stone-500">
+            {ok ? `Live from Jobber · updated ${updated}` : "From Jobber"}
+            {loadingMonths > 0 && <span className="text-amber-700"> · still loading {loadingMonths} older month{loadingMonths === 1 ? "" : "s"}</span>}
+          </div>
         </div>
       </div>
 
