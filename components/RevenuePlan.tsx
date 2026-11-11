@@ -4,10 +4,11 @@ import useSWR from "swr";
 import { useMemo } from "react";
 import {
   Bar,
-  BarChart,
+  ComposedChart,
   CartesianGrid,
   Cell,
   Legend,
+  Line,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -22,6 +23,19 @@ const fetcher = (u: string) => fetch(u).then((r) => r.json());
 
 const PLAN_COLOR = "#d6d3d1"; // stone-300: the target
 const ACTUAL_COLOR = "#047857"; // emerald-700: what we did
+const PLAN_TREND_COLOR = "#57534e"; // stone-600: solid fitted line through the plan
+const ACTUAL_TREND_COLOR = "#047857"; // dotted line fitted to actual months, carried forward
+
+/** Least-squares straight line through (x, y) points; returns y at any x. */
+function linearFit(points: { x: number; y: number }[]) {
+  const n = points.length;
+  if (n < 2) return null;
+  const mx = points.reduce((s, p) => s + p.x, 0) / n;
+  const my = points.reduce((s, p) => s + p.y, 0) / n;
+  const sxx = points.reduce((s, p) => s + (p.x - mx) ** 2, 0);
+  const slope = sxx ? points.reduce((s, p) => s + (p.x - mx) * (p.y - my), 0) / sxx : 0;
+  return { at: (x: number) => my + slope * (x - mx), slope };
+}
 
 const monthLabel = (ym: string, withYear = false) => {
   const d = new Date(ym + "-15T12:00:00");
@@ -120,12 +134,24 @@ export function RevenuePlan() {
     const monthFrac = Math.min(1, asOf.getDate() / daysInMonth);
     const asOfLabel = asOf.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
-    const rows = months.map((p) => ({
+    const base = months.map((p) => ({
       ...p,
       label: monthLabel(p.month),
       longLabel: monthLabel(p.month, true),
       actual: p.month <= thisMonth ? actualByMonth.get(p.month) ?? 0 : null,
       partial: p.month === thisMonth,
+    }));
+
+    // Fitted lines. Plan: every forecast month. Actual: completed months only (the current month is partial),
+    // then carried forward across the forecast so we can see where actual sales are heading.
+    const planFit = linearFit(base.map((r, i) => ({ x: i, y: r.total })));
+    const actualFit = linearFit(
+      base.map((r, i) => ({ x: i, y: r.actual ?? 0, use: r.actual != null && !r.partial })).filter((p) => p.use)
+    );
+    const rows = base.map((r, i) => ({
+      ...r,
+      planTrend: planFit ? Math.max(0, Math.round(planFit.at(i))) : null,
+      actualTrend: actualFit ? Math.max(0, Math.round(actualFit.at(i))) : null,
     }));
 
     const cur = rows.find((r) => r.month === thisMonth);
@@ -138,6 +164,11 @@ export function RevenuePlan() {
     const yearActual = sum(yearRows, (r) => r.actual ?? 0);
     const yearPlanToDate =
       sum(yearRows.filter((r) => r.month < thisMonth), (r) => r.total) + (cur ? cur.total * monthFrac : 0);
+    // Fiscal-year projection at the actual-sales trend: real sales for completed months,
+    // the trend line for this month and every month left in the year.
+    const yearProjected =
+      sum(yearRows.filter((r) => r.month < thisMonth), (r) => r.actual ?? 0) +
+      sum(yearRows.filter((r) => r.month >= thisMonth), (r) => r.actualTrend ?? 0);
 
     return {
       rows,
@@ -152,7 +183,9 @@ export function RevenuePlan() {
         actual: yearActual,
         plan: yearPlan,
         toDate: yearPlanToDate,
+        projected: yearProjected,
       },
+      actualSlope: actualFit?.slope ?? 0,
     };
   }, [plan, sales, cfg]);
 
@@ -171,7 +204,7 @@ export function RevenuePlan() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-2 mb-2">
+          <div className="grid grid-cols-4 gap-2 mb-2">
             {view.cur && (
               <Tile
                 label={`${view.cur.name} so far`}
@@ -197,11 +230,18 @@ export function RevenuePlan() {
                   : `${pct(view.year.actual, view.year.plan)}% of the year plan · | = plan to date`
               }
             />
+            <Tile
+              label={`${view.year.name} projected at actual trend`}
+              actual={view.year.projected}
+              plan={view.year.plan}
+              targetLabel="year plan"
+              note={`actual to date + dotted trend line · trend ${view.actualSlope >= 0 ? "+" : "−"}${fmtMoney(Math.abs(Math.round(view.actualSlope)))}/mo`}
+            />
           </div>
 
           <div className="flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={view.rows} margin={{ top: 8, right: 16, bottom: 0, left: 0 }} barGap={2} barCategoryGap="18%">
+              <ComposedChart data={view.rows} margin={{ top: 8, right: 16, bottom: 0, left: 0 }} barGap={2} barCategoryGap="18%">
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
                 <XAxis
                   dataKey="month"
@@ -231,6 +271,9 @@ export function RevenuePlan() {
                           <br />
                           Closet Locker {fmtMoney(r.closet)} · Handgun Locker {fmtMoney(r.handgun)}
                         </div>
+                        <div className="mt-1 text-stone-500">
+                          Plan trend {fmtMoney(r.planTrend ?? 0)} · actual trend {fmtMoney(r.actualTrend ?? 0)}
+                        </div>
                         {r.actual != null && (
                           <div className="mt-1 font-medium text-stone-800">
                             Actual {fmtMoney(r.actual)} ({pct(r.actual, r.total)}% of plan){r.partial ? " · month to date" : ""}
@@ -253,7 +296,27 @@ export function RevenuePlan() {
                     <Cell key={r.month} fill={ACTUAL_COLOR} fillOpacity={r.partial ? 0.45 : 1} />
                   ))}
                 </Bar>
-              </BarChart>
+                <Line
+                  name="Plan trend"
+                  dataKey="planTrend"
+                  stroke={PLAN_TREND_COLOR}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={false}
+                  isAnimationActive={false}
+                />
+                <Line
+                  name="Actual trend (projected)"
+                  dataKey="actualTrend"
+                  stroke={ACTUAL_TREND_COLOR}
+                  strokeWidth={2}
+                  strokeDasharray="2 4"
+                  strokeLinecap="round"
+                  dot={false}
+                  activeDot={false}
+                  isAnimationActive={false}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </>
