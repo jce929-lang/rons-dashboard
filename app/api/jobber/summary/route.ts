@@ -17,14 +17,15 @@ export type Summary = {
   owed: { total: number; overdue: number; count: number; overdueCount: number };
   pipeline: {
     requests: number;
-    quotesOut: { count: number; value: number };
+    quotesOut: { count: number; value: number; allTime: number };
     changesRequested: number;
     approved: { count: number; value: number };
     activeJobs: number;
+    todayJobs: number;
     lateJobs: number;
     toInvoice: { count: number; value: number };
   };
-  winRate: { won: number; decided: number; sent: number; days: number };
+  winRate: { won: number; quoted: number; days: number };
   // Counts by Jobber status, for checking what the pipeline numbers are made of.
   detail: { jobs: Record<string, number>; requests: Record<string, number>; quotes: Record<string, number> };
 };
@@ -104,7 +105,7 @@ async function build(): Promise<Summary> {
   const overdue = owedAll.filter((i) => i.invoiceStatus === "past_due");
 
   // Pipeline.
-  const quotesOut = await all<Qt>("quotes", { status: "awaiting_response" }, "quoteStatus amounts { total }");
+  const quotesOut = { length: await count("quotes", { status: "awaiting_response" }) };
   const approved = await all<Qt>("quotes", { status: "approved" }, "quoteStatus amounts { total }");
   const changesRequested = await count("quotes", { status: "changes_requested" });
   const REQ = ["new", "assessment_completed", "upcoming", "today", "overdue", "unscheduled"];
@@ -116,10 +117,13 @@ async function build(): Promise<Summary> {
   const lateJobs = await count("jobs", { status: "late" });
   const toInvoice = await all<Jb>("jobs", { status: "requires_invoicing" }, "uninvoicedTotal");
 
-  // Quote win rate: quotes created in the last 90 days that have been decided (won vs. archived).
-  const recent = await all<Qt>("quotes", { createdAt: { after: iso(winFrom) } }, "quoteStatus amounts { total }");
+  // Last 90 days of quotes (drafts excluded). Lost quotes are rarely archived in this account, so
+  // "close rate" = won / all quotes created, and "quotes out" only counts recent ones still waiting.
+  const recent = (await all<Qt>("quotes", { createdAt: { after: iso(winFrom) } }, "quoteStatus amounts { total }")).filter(
+    (q) => q.quoteStatus !== "draft"
+  );
   const won = recent.filter((q) => q.quoteStatus === "approved" || q.quoteStatus === "converted").length;
-  const lost = recent.filter((q) => q.quoteStatus === "archived").length;
+  const recentOut = recent.filter((q) => q.quoteStatus === "awaiting_response");
 
   const sum = <T,>(xs: T[], f: (x: T) => number) => xs.reduce((s, x) => s + f(x), 0);
   return {
@@ -133,14 +137,15 @@ async function build(): Promise<Summary> {
     },
     pipeline: {
       requests: requestCounts.reduce((a, b) => a + b, 0),
-      quotesOut: { count: quotesOut.length, value: sum(quotesOut, (q) => n(q.amounts?.total)) },
+      quotesOut: { count: recentOut.length, value: sum(recentOut, (q) => n(q.amounts?.total)), allTime: quotesOut.length },
       changesRequested,
       approved: { count: approved.length, value: sum(approved, (q) => n(q.amounts?.total)) },
       activeJobs: activeCounts.reduce((a, b) => a + b, 0) + lateJobs,
+      todayJobs: activeCounts[JOB.indexOf("today")],
       lateJobs,
       toInvoice: { count: toInvoice.length, value: sum(toInvoice, (j) => n(j.uninvoicedTotal)) },
     },
-    winRate: { won, decided: won + lost, sent: recent.length, days: winDays },
+    winRate: { won, quoted: recent.length, days: winDays },
     detail: {
       jobs: Object.fromEntries([...JOB.map((k, i) => [k, activeCounts[i]]), ["late", lateJobs], ["requires_invoicing", toInvoice.length]]),
       requests: Object.fromEntries(REQ.map((k, i) => [k, requestCounts[i]])),
