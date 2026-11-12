@@ -15,9 +15,14 @@ let cache: { at: number; data: Record<Loc, Summary> } | null = null;
 let inFlight: Promise<Record<Loc, Summary>> | null = null;
 let pipeCache: { at: number; data: Pipe } | null = null; // the slow part, kept 10 minutes on its own
 
-// Cincinnati metro: SW Ohio (450-452), Northern Kentucky (410) and SE Indiana around Lawrenceburg (470).
-// Everything else is Indianapolis.
-const CINCY_ZIP3 = new Set(["450", "451", "452", "410", "470"]);
+// Cincinnati territory, by the first 3 digits of the property's zip code (whether or not there's work there yet):
+//   Ohio 450-452 Cincinnati metro (Mason, Lebanon, Hamilton, Clermont/Brown/Highland counties)
+//   Ohio 453-454 Dayton area, 455 Springfield
+//   Kentucky 410 Northern Kentucky (Covington, Florence, Independence, Williamstown)
+//   Indiana 470 SE Indiana (Lawrenceburg, Aurora, Batesville, Brookville)
+// Everything else is Indianapolis. Changing this list re-pulls every month (see SPLIT_RULE_SINCE).
+const CINCY_ZIP3 = new Set(["450", "451", "452", "453", "454", "455", "410", "470"]);
+const SPLIT_RULE_SINCE = Date.parse("2026-11-12T14:20:00Z"); // months saved before this used an older list
 type Addr = { city: string | null; province: string | null; postalCode: string | null } | null | undefined;
 function areaOf(a: Addr): Loc {
   const zip = (a?.postalCode ?? "").trim().slice(0, 3);
@@ -215,7 +220,8 @@ async function build(): Promise<Record<Loc, Summary>> {
     const recentMonth = i >= monthKeys.length - 2;
     const stale = AREAS.some((a) => {
       const r = saved[a].get(month);
-      return !r || !r.refreshed || Date.now() - Date.parse(r.refreshed) > 24 * 3600_000;
+      const at = r ? Date.parse(r.refreshed) : NaN;
+      return !r || !r.refreshed || !(at >= SPLIT_RULE_SINCE) || Date.now() - at > 24 * 3600_000;
     });
     if (!recentMonth && !stale) continue;
     if (Date.now() - started > 38_000) continue; // out of time this run; the next refresh picks it up
