@@ -37,7 +37,6 @@ type Inv = {
   amounts: { total: number };
   properties: { nodes: { address: { city: string | null; province: string | null; postalCode: string | null } | null }[] };
   client: { tags: { nodes: { label: string }[] } } | null;
-  salesperson: { name: { full: string } } | null;
   taxDetails?: unknown;
 };
 
@@ -53,7 +52,6 @@ async function month(ym: string) {
         invoiceStatus amounts { total }
         properties(first: 3) { nodes { address { city province postalCode } } }
         client { tags(first: 10) { nodes { label } } }
-        salesperson { name { full } }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -62,7 +60,6 @@ async function month(ym: string) {
   const byCity: Record<string, { count: number; total: number }> = {};
   const byZip3: Record<string, { count: number; total: number }> = {};
   const byTag: Record<string, { count: number; total: number }> = {};
-  const bySales: Record<string, { count: number; total: number }> = {};
   const add = (m: Record<string, { count: number; total: number }>, k: string, t: number) => {
     m[k] ??= { count: 0, total: 0 };
     m[k].count++;
@@ -87,7 +84,6 @@ async function month(ym: string) {
       const tags = inv.client?.tags?.nodes?.map((x) => x.label) ?? [];
       if (!tags.length) add(byTag, "(no tags)", t);
       for (const tag of tags) add(byTag, tag, t);
-      add(bySales, inv.salesperson?.name?.full || "(none)", t);
     }
     if (!d.invoices.pageInfo.hasNextPage) break;
     after = d.invoices.pageInfo.endCursor;
@@ -98,7 +94,7 @@ async function month(ym: string) {
       .sort((a, b) => b[1].total - a[1].total)
       .slice(0, k)
       .map(([key, v]) => ({ key, count: v.count, total: Math.round(v.total) }));
-  return { month: ym, totalCount, seen, complete: !after || seen >= totalCount, byState: top(byState), byCity: top(byCity), byZip3: top(byZip3, 20), byTag: top(byTag), bySalesperson: top(bySales) };
+  return { month: ym, totalCount, seen, complete: !after || seen >= totalCount, byState: top(byState), byCity: top(byCity), byZip3: top(byZip3, 20), byTag: top(byTag) };
 }
 
 export async function GET(req: NextRequest) {
