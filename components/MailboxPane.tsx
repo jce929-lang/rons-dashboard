@@ -70,6 +70,11 @@ export function MailboxPane({ loc = "indy", reserveRight = 0 }: { loc?: "indy" |
           <div className="text-xs text-stone-500 truncate">
             {ok ? `Live from Jobber · ${place === "Cincinnati" ? "Cincinnati-area zip codes" : "all other areas"} · updated ${updated}` : "From Jobber"}
             {loadingMonths > 0 && <span className="text-amber-700"> · still loading {loadingMonths} older month{loadingMonths === 1 ? "" : "s"}</span>}
+            {ok && data.stale && (
+              <span className="text-amber-700" title={data.stale}>
+                {" "}· Jobber didn&apos;t answer, showing last good numbers
+              </span>
+            )}
           </div>
         </div>
       </div>
