@@ -42,6 +42,8 @@ type Page<T> = { nodes: T[]; pageInfo: { hasNextPage: boolean; endCursor: string
 
 export type Summary = {
   updatedAt: string;
+  // Set when this refresh failed and the last good numbers are being shown instead (the reason why).
+  stale?: string;
   location: string;
   months: { month: string; invoiced: number; paid: number; owed: number; invoices: number; complete: boolean }[];
   owed: { total: number; overdue: number; count: number; overdueCount: number };
@@ -282,6 +284,29 @@ async function build(): Promise<Record<Loc, Summary>> {
   return out;
 }
 
+// ---------- last good result, kept in the sheet so a failed refresh never blanks the TV ----------
+// (A fresh server has no memory of earlier results, so the in-memory cache alone isn't enough.)
+const SNAP_TAB = "Jobber Snapshot";
+async function saveSnapshot(data: Record<Loc, Summary>) {
+  try {
+    await ensureSheet(SNAP_TAB, [["Area", "Saved", "Summary (managed by the dashboard)"]]);
+    const saved = new Date().toISOString();
+    await writeRange(`${SNAP_TAB}!A2:C${AREAS.length + 1}`, AREAS.map((a) => [a, saved, JSON.stringify(data[a])]));
+  } catch (e) {
+    console.error("[jobber summary] couldn't save snapshot:", (e as Error).message);
+  }
+}
+async function loadSnapshot(): Promise<Record<Loc, Summary> | null> {
+  try {
+    const rows = await readRange(`${SNAP_TAB}!A2:C`);
+    const out = {} as Record<Loc, Summary>;
+    for (const r of rows) if (AREAS.includes(r[0] as Loc) && r[2]) out[r[0] as Loc] = JSON.parse(r[2]);
+    return AREAS.every((a) => out[a]) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
   const loc = parseLoc(req.nextUrl.searchParams.get("loc"));
   try {
@@ -290,12 +315,25 @@ export async function GET(req: NextRequest) {
     const ttl = partial ? 60_000 : CACHE_MS;
     if (!cache || Date.now() - cache.at > ttl) {
       // Both tabs share one pull; if one is already running, wait for it instead of starting another.
-      inFlight ??= build().finally(() => (inFlight = null));
+      inFlight ??= build()
+        .then(async (data) => {
+          await saveSnapshot(data);
+          return data;
+        })
+        .finally(() => (inFlight = null));
       cache = { at: Date.now(), data: await inFlight };
     }
     return NextResponse.json(cache.data[loc]);
   } catch (e) {
+    const message = (e as Error).message;
+    console.error(`[jobber summary] refresh failed (${loc}):`, message);
     const notConnected = e instanceof JobberNotConnected;
-    return NextResponse.json({ error: (e as Error).message, notConnected }, { status: notConnected ? 200 : 500 });
+    // Show the last good numbers instead of an error, and try again in a minute.
+    const last = cache?.data ?? (notConnected ? null : await loadSnapshot());
+    if (last) {
+      cache = { at: Date.now() - CACHE_MS + 60_000, data: last };
+      return NextResponse.json({ ...last[loc], stale: message });
+    }
+    return NextResponse.json({ error: message, notConnected }, { status: notConnected ? 200 : 500 });
   }
 }
