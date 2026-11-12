@@ -6,9 +6,27 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 // Mailbox & Streetscapes summary from Jobber. Totals only: no client names or addresses leave the server.
+// Indianapolis and Cincinnati share one Jobber account, so every invoice, quote, request and job is
+// assigned to an area by its property's zip code (see areaOf). One pull feeds both tabs.
 // Cached per server instance for 10 minutes so the TV doesn't hammer Jobber's API.
 const CACHE_MS = 10 * 60_000;
-const caches = new Map<Loc, { at: number; data: Summary }>();
+const AREAS = Object.keys(LOCATIONS) as Loc[];
+let cache: { at: number; data: Record<Loc, Summary> } | null = null;
+let inFlight: Promise<Record<Loc, Summary>> | null = null;
+let pipeCache: { at: number; data: Pipe } | null = null; // the slow part, kept 10 minutes on its own
+
+// Cincinnati metro: SW Ohio (450-452), Northern Kentucky (410) and SE Indiana around Lawrenceburg (470).
+// Everything else is Indianapolis.
+const CINCY_ZIP3 = new Set(["450", "451", "452", "410", "470"]);
+type Addr = { city: string | null; province: string | null; postalCode: string | null } | null | undefined;
+function areaOf(a: Addr): Loc {
+  const zip = (a?.postalCode ?? "").trim().slice(0, 3);
+  if (/^\d{3}$/.test(zip)) return CINCY_ZIP3.has(zip) ? "cincinnati" : "indy";
+  const st = (a?.province ?? "").trim().toUpperCase();
+  const city = (a?.city ?? "").trim().toLowerCase();
+  return st === "OH" || st === "OHIO" || city === "cincinnati" ? "cincinnati" : "indy";
+}
+const ADDR = "address { city province postalCode }";
 
 type Page<T> = { nodes: T[]; pageInfo: { hasNextPage: boolean; endCursor: string | null }; totalCount?: number };
 
@@ -19,7 +37,7 @@ export type Summary = {
   owed: { total: number; overdue: number; count: number; overdueCount: number };
   pipeline: {
     requests: number;
-    quotesOut: { count: number; value: number; allTime: number };
+    quotesOut: { count: number; value: number };
     changesRequested: number;
     approved: { count: number; value: number };
     activeJobs: number;
@@ -29,7 +47,7 @@ export type Summary = {
   };
   winRate: { won: number; quoted: number; days: number };
   // Counts by Jobber status, for checking what the pipeline numbers are made of.
-  detail: { jobs: Record<string, number>; requests: Record<string, number>; quotes: Record<string, number>; monthsRefreshed: string[] };
+  detail: { jobs: Record<string, number>; requests: Record<string, number>; monthsRefreshed: string[] };
 };
 
 const iso = (d: Date) => d.toISOString();
@@ -41,9 +59,14 @@ async function seq<A, R>(xs: A[], f: (x: A) => Promise<R>): Promise<R[]> {
   for (const x of xs) out.push(await f(x));
   return out;
 }
+const byArea = <T,>(xs: T[], area: (x: T) => Loc) => {
+  const out = Object.fromEntries(AREAS.map((a) => [a, [] as T[]])) as Record<Loc, T[]>;
+  for (const x of xs) out[area(x)].push(x);
+  return out;
+};
 
 /** Walk every page of a connection, capped so one call can't run away. Also returns Jobber's own total count. */
-async function allWithCount<T>(loc: Loc, field: string, filter: Record<string, unknown>, nodeFields: string, maxPages = 30, pageSize = 50) {
+async function allWithCount<T>(field: string, filter: Record<string, unknown>, nodeFields: string, maxPages = 30, pageSize = 50) {
   const q = `query ($filter: ${filterType(field)}, $after: String) {
     ${field}(filter: $filter, first: ${pageSize}, after: $after) { totalCount nodes { ${nodeFields} } pageInfo { hasNextPage endCursor } }
   }`;
@@ -51,7 +74,7 @@ async function allWithCount<T>(loc: Loc, field: string, filter: Record<string, u
   let total = 0;
   let after: string | null = null;
   for (let i = 0; i < maxPages; i++) {
-    const data: Record<string, Page<T>> = await jobberQuery(q, { filter, after }, undefined, loc);
+    const data: Record<string, Page<T>> = await jobberQuery(q, { filter, after });
     const page: Page<T> = data[field];
     total = n(page.totalCount);
     out.push(...page.nodes);
@@ -61,15 +84,18 @@ async function allWithCount<T>(loc: Loc, field: string, filter: Record<string, u
   }
   return { nodes: out, total };
 }
-async function all<T>(loc: Loc, field: string, filter: Record<string, unknown>, nodeFields: string, maxPages = 30): Promise<T[]> {
-  return (await allWithCount<T>(loc, field, filter, nodeFields, maxPages)).nodes;
+async function all<T>(field: string, filter: Record<string, unknown>, nodeFields: string, maxPages = 30): Promise<T[]> {
+  return (await allWithCount<T>(field, filter, nodeFields, maxPages)).nodes;
+}
+function filterType(field: string) {
+  return { invoices: "InvoiceFilterAttributes", quotes: "QuoteFilterAttributes", jobs: "JobFilterAttributes", requests: "RequestFilterAttributes" }[field]!;
 }
 
-// ---------- monthly invoice totals, saved in a "Jobber Monthly" sheet tab per location ----------
+// ---------- monthly invoice totals, saved in one sheet tab per area ----------
 // Pulling a year of invoices takes too long for one request, so each month is pulled on its own and saved.
 // The current and previous month refresh every time; older months refresh once a day (payments still land on them).
-const monthTab = (loc: Loc) => (loc === "indy" ? "Jobber Monthly" : `Jobber Monthly - ${LOCATIONS[loc].label}`);
-const MONTH_HEADER = ["Month", "Invoiced", "Paid", "Still owed", "Invoices", "Jobber count", "Refreshed"];
+const monthTab = (loc: Loc) => `Jobber Monthly - ${LOCATIONS[loc].label}`;
+const MONTH_HEADER = ["Month", "Invoiced", "Paid", "Still owed", "Invoices", "Jobber count (all areas)", "Refreshed"];
 type MonthRow = { month: string; invoiced: number; paid: number; owed: number; invoices: number; expected: number; refreshed: string };
 
 async function readMonths(loc: Loc): Promise<Map<string, MonthRow>> {
@@ -95,17 +121,22 @@ async function writeMonths(loc: Loc, m: Map<string, MonthRow>) {
   ]);
 }
 
-async function pullMonth(loc: Loc, month: string): Promise<MonthRow> {
-  type Inv = { issuedDate: string | null; invoiceStatus: string; amounts: { total: number; invoiceBalance: number } };
+/** One month of invoices, split by area. */
+async function pullMonth(month: string): Promise<Record<Loc, MonthRow>> {
+  type Inv = { invoiceStatus: string; amounts: { total: number; invoiceBalance: number }; properties: { nodes: { address: Addr }[] } };
   const [y, mo] = month.split("-").map(Number);
   const start = new Date(Date.UTC(y, mo - 1, 1));
   const end = new Date(Date.UTC(y, mo, 1));
   const filter = { issuedDate: { after: new Date(start.getTime() - 1).toISOString(), before: end.toISOString() } };
-  const fields = "issuedDate invoiceStatus amounts { total invoiceBalance }";
-  const { nodes, total } = await allWithCount<Inv>(loc, "invoices", filter, fields, 160, 50);
-  const row: MonthRow = { month, invoiced: 0, paid: 0, owed: 0, invoices: 0, expected: total, refreshed: new Date().toISOString() };
+  const fields = `invoiceStatus amounts { total invoiceBalance } properties(first: 1) { nodes { ${ADDR} } }`;
+  const { nodes, total } = await allWithCount<Inv>("invoices", filter, fields, 160, 50);
+  const refreshed = nodes.length < total ? "" : new Date().toISOString(); // didn't get everything: try again next time
+  const rows = Object.fromEntries(
+    AREAS.map((a) => [a, { month, invoiced: 0, paid: 0, owed: 0, invoices: 0, expected: Math.max(total, nodes.length), refreshed }])
+  ) as Record<Loc, MonthRow>;
   for (const inv of nodes) {
     if (inv.invoiceStatus === "draft") continue;
+    const row = rows[areaOf(inv.properties?.nodes?.[0]?.address)];
     const t = n(inv.amounts?.total);
     const bal = inv.invoiceStatus === "bad_debt" ? 0 : n(inv.amounts?.invoiceBalance);
     row.invoiced += t;
@@ -113,127 +144,145 @@ async function pullMonth(loc: Loc, month: string): Promise<MonthRow> {
     row.paid += Math.max(0, t - bal);
     row.invoices++;
   }
-  row.expected = Math.max(total, nodes.length);
-  if (nodes.length < total) row.refreshed = ""; // didn't get everything: try again next time
-  return row;
+  return rows;
 }
 
-/** Just the count for a filter. */
-async function count(loc: Loc, field: string, filter: Record<string, unknown>): Promise<number> {
-  const q = `query ($filter: ${filterType(field)}) { ${field}(filter: $filter, first: 1) { totalCount } }`;
-  const data: Record<string, { totalCount: number }> = await jobberQuery(q, { filter }, undefined, loc);
-  return n(data[field].totalCount);
-}
+const REQ = ["new", "assessment_completed", "upcoming", "today", "overdue", "unscheduled"];
+const JOB = ["active", "upcoming", "today", "unscheduled", "action_required", "on_hold", "late"];
 
-function filterType(field: string) {
-  return { invoices: "InvoiceFilterAttributes", quotes: "QuoteFilterAttributes", jobs: "JobFilterAttributes", requests: "RequestFilterAttributes" }[field]!;
-}
+async function pullPipeline(winFrom: Date) {
+  type P = { property: { address: Addr } | null };
+  const area = (x: P) => areaOf(x.property?.address);
+  type Owed = { invoiceStatus: string; amounts: { invoiceBalance: number }; properties: { nodes: { address: Addr }[] } };
+  type Qt = P & { quoteStatus: string; createdAt: string; amounts: { total: number } };
+  type Jb = P & { uninvoicedTotal?: number };
+  type Rq = P;
+  const PROP = `property { ${ADDR} }`;
 
-async function build(loc: Loc): Promise<Summary> {
+  // ---- pipeline (pulled as lists so each item can be put in its area) ----
+  const owedLists = await seq(["awaiting_payment", "sent_not_due", "past_due"], (status) =>
+    all<Owed>("invoices", { status }, `invoiceStatus amounts { invoiceBalance } properties(first: 1) { nodes { ${ADDR} } }`)
+  );
+  const owedAll = byArea(
+    owedLists.flat().filter((i) => n(i.amounts?.invoiceBalance) > 0),
+    (i) => areaOf(i.properties?.nodes?.[0]?.address)
+  );
+  // Tag each item with the status it was listed under (that's what the counts mean).
+  const requests = byArea(
+    (await seq(REQ, async (status) => (await all<Rq>("requests", { status }, PROP)).map((r) => ({ ...r, status })))).flat(),
+    area
+  );
+  const jobs = byArea(
+    (await seq(JOB, async (status) => (await all<Jb>("jobs", { status }, PROP)).map((j) => ({ ...j, status })))).flat(),
+    area
+  );
+  const toInvoice = byArea(await all<Jb>("jobs", { status: "requires_invoicing" }, `uninvoicedTotal ${PROP}`), area);
+  const QF = `quoteStatus createdAt amounts { total } ${PROP}`;
+  const approved = byArea(await all<Qt>("quotes", { status: "approved" }, QF), area);
+  const changes = byArea(await all<Qt>("quotes", { status: "changes_requested" }, QF), area);
+  // Last 90 days of quotes (drafts excluded). Lost quotes are rarely archived in this account, so
+  // "close rate" = won / all quotes created, and "quotes out" only counts recent ones still waiting.
+  const recent = byArea(
+    (await all<Qt>("quotes", { createdAt: { after: iso(winFrom) } }, QF)).filter((q) => q.quoteStatus !== "draft"),
+    area
+  );
+
+  return { owedAll, requests, jobs, toInvoice, approved, changes, recent };
+}
+type Pipe = Awaited<ReturnType<typeof pullPipeline>>;
+
+
+async function build(): Promise<Record<Loc, Summary>> {
+  const started = Date.now();
   const now = new Date();
   const firstMonth = new Date(now.getFullYear(), now.getMonth() - 12, 1); // this month + the 12 before it
   const winDays = 90;
   const winFrom = new Date(now.getTime() - winDays * 86400_000);
 
-  type Owed = { invoiceStatus: string; amounts: { invoiceBalance: number } };
-  type Qt = { quoteStatus: string; amounts: { total: number } };
-  type Jb = { uninvoicedTotal: number };
+  // Pipeline (the slow part) is kept 10 minutes on its own, so quick re-runs only work on the monthly backfill.
+  if (!pipeCache || Date.now() - pipeCache.at > CACHE_MS) pipeCache = { at: Date.now(), data: await pullPipeline(winFrom) };
+  const { owedAll, requests, jobs, toInvoice, approved, changes, recent } = pipeCache.data;
 
-  // Invoices by issue month for this month + the 12 before it, from the saved monthly totals.
-  const started = Date.now();
-  const saved = await readMonths(loc);
+  // ---- invoices by issue month, from the saved monthly totals ----
+  const saved = Object.fromEntries(await Promise.all(AREAS.map(async (a) => [a, await readMonths(a)] as const))) as Record<Loc, Map<string, MonthRow>>;
   const monthKeys: string[] = [];
   for (let d = new Date(firstMonth); d <= now; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
     monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
+  // Newest months first so the ones that change most are always fresh; stop with time to spare.
   const refreshed: string[] = [];
-  for (const [i, month] of monthKeys.entries()) {
+  for (const [i, month] of [...monthKeys.entries()].reverse()) {
     const recentMonth = i >= monthKeys.length - 2;
-    const prev = saved.get(month);
-    const stale = !prev || !prev.refreshed || Date.now() - Date.parse(prev.refreshed) > 24 * 3600_000;
+    const stale = AREAS.some((a) => {
+      const r = saved[a].get(month);
+      return !r || !r.refreshed || Date.now() - Date.parse(r.refreshed) > 24 * 3600_000;
+    });
     if (!recentMonth && !stale) continue;
-    if (!recentMonth && Date.now() - started > 35_000) continue; // out of time this run; the next refresh picks it up
-    saved.set(month, await pullMonth(loc, month));
+    if (Date.now() - started > 38_000) continue; // out of time this run; the next refresh picks it up
+    const rows = await pullMonth(month);
+    for (const a of AREAS) saved[a].set(month, rows[a]);
     refreshed.push(month);
   }
-  if (refreshed.length) await writeMonths(loc, saved);
-  const byMonth = new Map(
-    monthKeys.map((m) => {
-      const r = saved.get(m);
-      return [m, { invoiced: r?.invoiced ?? 0, paid: r?.paid ?? 0, owed: r?.owed ?? 0, invoices: r?.invoices ?? 0, complete: !!r?.refreshed }];
-    })
-  );
-
-  // Everything still owed, any age.
-  const owedLists = await seq(["awaiting_payment", "sent_not_due", "past_due"], (status) =>
-    all<Owed>(loc, "invoices", { status }, "invoiceStatus amounts { invoiceBalance }")
-  );
-  const owedAll = owedLists.flat().filter((i) => n(i.amounts?.invoiceBalance) > 0);
-  const overdue = owedAll.filter((i) => i.invoiceStatus === "past_due");
-
-  // Pipeline.
-  const quotesOut = { length: await count(loc, "quotes", { status: "awaiting_response" }) };
-  const approved = await all<Qt>(loc, "quotes", { status: "approved" }, "quoteStatus amounts { total }");
-  const changesRequested = await count(loc, "quotes", { status: "changes_requested" });
-  const REQ = ["new", "assessment_completed", "upcoming", "today", "overdue", "unscheduled"];
-  const JOB = ["active", "upcoming", "today", "unscheduled", "action_required", "on_hold"];
-  const QUO = ["draft", "awaiting_response", "changes_requested", "approved", "converted", "archived"];
-  const requestCounts = await seq(REQ, (status) => count(loc, "requests", { status }));
-  const activeCounts = await seq(JOB, (status) => count(loc, "jobs", { status }));
-  const quoteCounts = await seq(QUO, (status) => count(loc, "quotes", { status }));
-  const lateJobs = await count(loc, "jobs", { status: "late" });
-  const toInvoice = await all<Jb>(loc, "jobs", { status: "requires_invoicing" }, "uninvoicedTotal");
-
-  // Last 90 days of quotes (drafts excluded). Lost quotes are rarely archived in this account, so
-  // "close rate" = won / all quotes created, and "quotes out" only counts recent ones still waiting.
-  const recent = (await all<Qt>(loc, "quotes", { createdAt: { after: iso(winFrom) } }, "quoteStatus amounts { total }")).filter(
-    (q) => q.quoteStatus !== "draft"
-  );
-  const won = recent.filter((q) => q.quoteStatus === "approved" || q.quoteStatus === "converted").length;
-  const recentOut = recent.filter((q) => q.quoteStatus === "awaiting_response");
+  if (refreshed.length) for (const a of AREAS) await writeMonths(a, saved[a]);
 
   const sum = <T,>(xs: T[], f: (x: T) => number) => xs.reduce((s, x) => s + f(x), 0);
-  return {
-    updatedAt: now.toISOString(),
-    location: LOCATIONS[loc].label,
-    months: [...byMonth.entries()].map(([month, v]) => ({ month, ...v })),
-    owed: {
-      total: sum(owedAll, (i) => n(i.amounts.invoiceBalance)),
-      overdue: sum(overdue, (i) => n(i.amounts.invoiceBalance)),
-      count: owedAll.length,
-      overdueCount: overdue.length,
-    },
-    pipeline: {
-      requests: requestCounts.reduce((a, b) => a + b, 0),
-      quotesOut: { count: recentOut.length, value: sum(recentOut, (q) => n(q.amounts?.total)), allTime: quotesOut.length },
-      changesRequested,
-      approved: { count: approved.length, value: sum(approved, (q) => n(q.amounts?.total)) },
-      activeJobs: activeCounts.reduce((a, b) => a + b, 0) + lateJobs,
-      todayJobs: activeCounts[JOB.indexOf("today")],
-      lateJobs,
-      toInvoice: { count: toInvoice.length, value: sum(toInvoice, (j) => n(j.uninvoicedTotal)) },
-    },
-    winRate: { won, quoted: recent.length, days: winDays },
-    detail: {
-      jobs: Object.fromEntries([...JOB.map((k, i) => [k, activeCounts[i]]), ["late", lateJobs], ["requires_invoicing", toInvoice.length]]),
-      requests: Object.fromEntries(REQ.map((k, i) => [k, requestCounts[i]])),
-      quotes: Object.fromEntries(QUO.map((k, i) => [k, quoteCounts[i]])),
-      monthsRefreshed: refreshed,
-    },
-  };
+  const tally = (xs: { s: string }[], keys: string[]) => Object.fromEntries(keys.map((k) => [k, xs.filter((x) => x.s === k).length]));
+
+  const out = {} as Record<Loc, Summary>;
+  for (const a of AREAS) {
+    const owed = owedAll[a];
+    const overdue = owed.filter((i) => i.invoiceStatus === "past_due");
+    const jb = jobs[a];
+    const late = jb.filter((j) => j.status === "late").length;
+    const today = jb.filter((j) => j.status === "today").length;
+    const rec = recent[a];
+    const recentOut = rec.filter((q) => q.quoteStatus === "awaiting_response");
+    out[a] = {
+      updatedAt: now.toISOString(),
+      location: LOCATIONS[a].label,
+      months: monthKeys.map((m) => {
+        const r = saved[a].get(m);
+        return { month: m, invoiced: r?.invoiced ?? 0, paid: r?.paid ?? 0, owed: r?.owed ?? 0, invoices: r?.invoices ?? 0, complete: !!r?.refreshed };
+      }),
+      owed: {
+        total: sum(owed, (i) => n(i.amounts.invoiceBalance)),
+        overdue: sum(overdue, (i) => n(i.amounts.invoiceBalance)),
+        count: owed.length,
+        overdueCount: overdue.length,
+      },
+      pipeline: {
+        requests: requests[a].length,
+        quotesOut: { count: recentOut.length, value: sum(recentOut, (q) => n(q.amounts?.total)) },
+        changesRequested: changes[a].length,
+        approved: { count: approved[a].length, value: sum(approved[a], (q) => n(q.amounts?.total)) },
+        activeJobs: jb.length,
+        todayJobs: today,
+        lateJobs: late,
+        toInvoice: { count: toInvoice[a].length, value: sum(toInvoice[a], (j) => n(j.uninvoicedTotal)) },
+      },
+      winRate: { won: rec.filter((q) => q.quoteStatus === "approved" || q.quoteStatus === "converted").length, quoted: rec.length, days: winDays },
+      detail: {
+        jobs: { ...tally(jb.map((j) => ({ s: j.status })), JOB), requires_invoicing: toInvoice[a].length },
+        requests: tally(requests[a].map((r) => ({ s: r.status })), REQ),
+        monthsRefreshed: refreshed,
+      },
+    };
+  }
+  return out;
 }
 
 export async function GET(req: NextRequest) {
   const loc = parseLoc(req.nextUrl.searchParams.get("loc"));
   try {
     // Keep a partial result (older months still loading) for only a minute so the backfill keeps going.
-    let cache = caches.get(loc);
-    const ttl = cache?.data.months.some((m) => !m.complete) ? 60_000 : CACHE_MS;
+    const partial = cache && AREAS.some((a) => cache!.data[a].months.some((m) => !m.complete));
+    const ttl = partial ? 60_000 : CACHE_MS;
     if (!cache || Date.now() - cache.at > ttl) {
-      cache = { at: Date.now(), data: await build(loc) };
-      caches.set(loc, cache);
+      // Both tabs share one pull; if one is already running, wait for it instead of starting another.
+      inFlight ??= build().finally(() => (inFlight = null));
+      cache = { at: Date.now(), data: await inFlight };
     }
-    return NextResponse.json(cache.data);
+    return NextResponse.json(cache.data[loc]);
   } catch (e) {
     const notConnected = e instanceof JobberNotConnected;
     return NextResponse.json({ error: (e as Error).message, notConnected }, { status: notConnected ? 200 : 500 });
