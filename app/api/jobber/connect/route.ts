@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { REDIRECT_URI } from "../shared";
-import { jobberConfig, parseLoc, signState } from "@/lib/jobber";
+import { DEFAULT_LOC, jobberConfig, signState } from "@/lib/jobber";
 
 export const dynamic = "force-dynamic";
 
-/** Step 1: a Jobber admin opens this link once per location (?loc=cincinnati for Cincinnati).
- *  It sends them to Jobber to approve read-only access. */
-export async function GET(req: NextRequest) {
+/** Step 1: a Jobber admin opens this link once. It sends them to Jobber to approve read-only access.
+ *  Indianapolis and Cincinnati share one Jobber account (split by zip code), so there's one connection. */
+export async function GET(_req: NextRequest) {
   const { clientId } = jobberConfig();
-  const loc = parseLoc(req.nextUrl.searchParams.get("loc"));
+  const loc = DEFAULT_LOC;
   const nonce = crypto.randomBytes(16).toString("hex");
   const state = signState(`${nonce}:${Date.now()}:${loc}`);
   const url = new URL("https://api.getjobber.com/api/oauth/authorize");
