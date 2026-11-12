@@ -46,7 +46,8 @@ const Arrow = () => <span className="text-stone-300 self-center shrink-0">›</s
 
 export function MailboxPane({ loc = "indy", reserveRight = 0 }: { loc?: "indy" | "cincinnati"; reserveRight?: number }) {
   const { data, error } = useSWR<Summary & { error?: string; notConnected?: boolean }>(`/api/jobber/summary?loc=${loc}`, fetcher, {
-    refreshInterval: 10 * 60_000,
+    // Every 10 minutes, or every minute while older months are still loading.
+    refreshInterval: (d) => (d?.months?.some((m) => !m.complete) ? 60_000 : 10 * 60_000),
   });
   const place = loc === "cincinnati" ? "Cincinnati" : "Indianapolis";
 
