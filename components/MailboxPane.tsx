@@ -67,7 +67,7 @@ export function MailboxPane({ loc = "indy", reserveRight = 0 }: { loc?: "indy" |
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-stone-800 truncate">Mailbox &amp; Streetscapes · {place}</h2>
           <div className="text-xs text-stone-500 truncate">
-            {ok ? `Live from Jobber · updated ${updated}` : "From Jobber"}
+            {ok ? `Live from Jobber · ${place === "Cincinnati" ? "Cincinnati-area zip codes" : "all other areas"} · updated ${updated}` : "From Jobber"}
             {loadingMonths > 0 && <span className="text-amber-700"> · still loading {loadingMonths} older month{loadingMonths === 1 ? "" : "s"}</span>}
           </div>
         </div>
@@ -76,7 +76,7 @@ export function MailboxPane({ loc = "indy", reserveRight = 0 }: { loc?: "indy" |
       {!ok ? (
         <div className="flex-1 flex items-center justify-center text-stone-400 text-center px-6">
           {data?.notConnected
-            ? `${place}'s Jobber account isn't connected yet. An admin on that Jobber account needs to open the connect link once.`
+            ? "Jobber isn't connected. A Jobber admin needs to open /api/jobber/connect once."
             : error || data?.error
             ? `Couldn't load Jobber data${data?.error ? `: ${data.error}` : ""}`
             : "Loading from Jobber…"}
@@ -166,7 +166,6 @@ export function MailboxPane({ loc = "indy", reserveRight = 0 }: { loc?: "indy" |
                 label={`Quotes out · ${data.winRate.days} days`}
                 count={data.pipeline.quotesOut.count}
                 value={data.pipeline.quotesOut.value}
-                note={`${data.pipeline.quotesOut.allTime.toLocaleString()} open all-time`}
               />
               <Arrow />
               <Step label="Approved quotes" count={data.pipeline.approved.count} value={data.pipeline.approved.value} />
