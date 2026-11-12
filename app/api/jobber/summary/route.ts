@@ -23,6 +23,11 @@ let pipeCache: { at: number; data: Pipe } | null = null; // the slow part, kept 
 // Everything else is Indianapolis. Changing this list re-pulls every month (see SPLIT_RULE_SINCE).
 const CINCY_ZIP3 = new Set(["450", "451", "452", "453", "454", "455", "410", "470"]);
 const SPLIT_RULE_SINCE = Date.parse("2026-11-12T14:20:00Z"); // months saved before this used an older list
+/** Saved under the current zip list, fully pulled, and (by default) less than a day old. */
+const isFresh = (r: { refreshed: string } | undefined, maxAge = 24 * 3600_000) => {
+  const at = r?.refreshed ? Date.parse(r.refreshed) : NaN;
+  return at >= SPLIT_RULE_SINCE && Date.now() - at <= maxAge;
+};
 type Addr = { city: string | null; province: string | null; postalCode: string | null } | null | undefined;
 function areaOf(a: Addr): Loc {
   const zip = (a?.postalCode ?? "").trim().slice(0, 3);
@@ -204,30 +209,30 @@ async function build(): Promise<Record<Loc, Summary>> {
   const winDays = 90;
   const winFrom = new Date(now.getTime() - winDays * 86400_000);
 
-  // Pipeline (the slow part) is kept 10 minutes on its own, so quick re-runs only work on the monthly backfill.
-  if (!pipeCache || Date.now() - pipeCache.at > CACHE_MS) pipeCache = { at: Date.now(), data: await pullPipeline(winFrom) };
-  const { owedAll, requests, jobs, toInvoice, approved, changes, recent } = pipeCache.data;
-
   // ---- invoices by issue month, from the saved monthly totals ----
   const saved = Object.fromEntries(await Promise.all(AREAS.map(async (a) => [a, await readMonths(a)] as const))) as Record<Loc, Map<string, MonthRow>>;
   const monthKeys: string[] = [];
   for (let d = new Date(firstMonth); d <= now; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
     monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
-  // Newest months first so the ones that change most are always fresh; stop with time to spare.
   const refreshed: string[] = [];
-  for (const [i, month] of [...monthKeys.entries()].reverse()) {
-    const recentMonth = i >= monthKeys.length - 2;
-    const stale = AREAS.some((a) => {
-      const r = saved[a].get(month);
-      const at = r ? Date.parse(r.refreshed) : NaN;
-      return !r || !r.refreshed || !(at >= SPLIT_RULE_SINCE) || Date.now() - at > 24 * 3600_000;
-    });
-    if (!recentMonth && !stale) continue;
-    if (Date.now() - started > 38_000) continue; // out of time this run; the next refresh picks it up
+  const refresh = async (month: string) => {
     const rows = await pullMonth(month);
     for (const a of AREAS) saved[a].set(month, rows[a]);
     refreshed.push(month);
+  };
+  // 1) This month and last month change the most: always refresh them first.
+  for (const month of monthKeys.slice(-2).reverse()) await refresh(month);
+
+  // 2) Pipeline (open jobs, quotes, unpaid invoices) is the slow part, so it's kept 10 minutes on its own.
+  if (!pipeCache || Date.now() - pipeCache.at > CACHE_MS) pipeCache = { at: Date.now(), data: await pullPipeline(winFrom) };
+  const { owedAll, requests, jobs, toInvoice, approved, changes, recent } = pipeCache.data;
+
+  // 3) Older months: re-pull any that are a day old or saved under an older zip list, newest first, while time allows.
+  for (const month of monthKeys.slice(0, -2).reverse()) {
+    if (!AREAS.some((a) => !isFresh(saved[a].get(month)))) continue;
+    if (Date.now() - started > 38_000) break; // out of time this run; the next refresh picks it up
+    await refresh(month);
   }
   if (refreshed.length) for (const a of AREAS) await writeMonths(a, saved[a]);
 
@@ -248,7 +253,7 @@ async function build(): Promise<Record<Loc, Summary>> {
       location: LOCATIONS[a].label,
       months: monthKeys.map((m) => {
         const r = saved[a].get(m);
-        return { month: m, invoiced: r?.invoiced ?? 0, paid: r?.paid ?? 0, owed: r?.owed ?? 0, invoices: r?.invoices ?? 0, complete: !!r?.refreshed };
+        return { month: m, invoiced: r?.invoiced ?? 0, paid: r?.paid ?? 0, owed: r?.owed ?? 0, invoices: r?.invoices ?? 0, complete: isFresh(r, Infinity) };
       }),
       owed: {
         total: sum(owed, (i) => n(i.amounts.invoiceBalance)),
