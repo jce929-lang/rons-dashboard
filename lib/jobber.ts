@@ -175,11 +175,12 @@ export async function jobberQuery<T = unknown>(
     const json = await res.json().catch(() => ({}));
     // Jobber meters API use; when the budget runs low it answers THROTTLED. Wait for it to refill and retry.
     const throttled = res.status === 429 || json.errors?.some((e: { extensions?: { code?: string } }) => e.extensions?.code === "THROTTLED");
-    if (throttled && throttles < 5) {
+    if (throttled && throttles < 8) {
       const st = json.extensions?.cost?.throttleStatus;
       const need = Number(json.extensions?.cost?.requestedQueryCost) || 1000;
       const waitMs = st?.restoreRate ? Math.ceil(((need - (st.currentlyAvailable ?? 0)) / st.restoreRate) * 1000) + 250 : 2000 * (throttles + 1);
-      await new Promise((r) => setTimeout(r, Math.min(Math.max(waitMs, 500), 8000)));
+      console.warn(`[jobber] throttled, waiting ${Math.round(waitMs / 100) / 10}s (try ${throttles + 1} of 8)`);
+      await new Promise((r) => setTimeout(r, Math.min(Math.max(waitMs, 500), 10_000)));
       throttles++;
       attempt--; // retry without counting it as a token refresh
       continue;
